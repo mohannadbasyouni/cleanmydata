@@ -25,12 +25,8 @@ data/*.xlsx
 data/*.xls
 !data/retail_sales.csv
 
-# OS files
-.DS_Store
-Thumbs.db
-
 # Logs
-*.log
+logs/cleaning_report.txt
 
 # Development/testing files
 new_funcs.py
