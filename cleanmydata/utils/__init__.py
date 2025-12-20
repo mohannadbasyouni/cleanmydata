@@ -1,3 +1,5 @@
+"""Utility functions for cleanmydata."""
+
 import itertools
 import os
 import sys
