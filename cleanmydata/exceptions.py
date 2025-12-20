@@ -17,3 +17,9 @@ class DataCleaningError(CleanMyDataError):
     """Raised when data cleaning operations fail."""
 
     pass
+
+
+class ValidationError(CleanMyDataError):
+    """Raised when configuration validation fails."""
+
+    pass

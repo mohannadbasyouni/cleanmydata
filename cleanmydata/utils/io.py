@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from cleanmydata.constants import SUPPORTED_FORMATS
 from cleanmydata.exceptions import DataLoadError
 
 
@@ -32,7 +33,7 @@ def read_data(path: Path) -> pd.DataFrame:
     if suffix == ".xls":
         raise DataLoadError(
             "Unsupported file format: .xls (old Excel format). "
-            "Please convert to .xlsx or .xlsm. Supported formats: .csv, .xlsx, .xlsm"
+            f"Please convert to .xlsx or .xlsm. Supported formats: {', '.join(SUPPORTED_FORMATS)}"
         )
 
     try:
@@ -42,7 +43,7 @@ def read_data(path: Path) -> pd.DataFrame:
             df = pd.read_excel(path)
         else:
             raise DataLoadError(
-                f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm"
+                f"Unsupported file format: {suffix}. Supported formats: {', '.join(SUPPORTED_FORMATS)}"
             )
 
         return df
