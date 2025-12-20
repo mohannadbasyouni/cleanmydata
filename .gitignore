@@ -25,3 +25,11 @@ Thumbs.db
 
 # Local scratch/dev files
 src/new_funcs.py
+
+# Data files and logs
+logs/
+data/*.csv
+data/*.xlsx
+data/*.xls
+data/*.parquet
+!data/retail_sales.csv
