@@ -38,3 +38,6 @@ data/*.parquet
 # Environment files
 .env
 .env.*
+
+# Documentation images
+docs/architecture/*.png
