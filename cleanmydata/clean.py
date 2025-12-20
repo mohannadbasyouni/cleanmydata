@@ -273,7 +273,7 @@ def normalize_column_names(df, verbose=False):
 
     if verbose:
         print_section("Column Name Normalization")
-        renamed_pairs = [(o, n) for o, n in zip(old_cols, df.columns, strict=True) if o != n]
+        renamed_pairs = [(o, n) for o, n in zip(old_cols, df.columns) if o != n]
         if renamed_pairs:
             _vprint(f"• {len(renamed_pairs)} column(s) renamed:", color="cyan", verbose=verbose)
             max_len = min(

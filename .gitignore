@@ -30,3 +30,6 @@ logs/cleaning_report.txt
 
 # Development/testing files
 new_funcs.py
+
+# Generated metadata
+cleanmydata.egg-info/

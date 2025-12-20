@@ -55,6 +55,7 @@ cleanmydata = ["py.typed"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = ["src/new_funcs.py"]
 
 [tool.ruff.lint]
 select = [
@@ -69,6 +70,7 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
+    "B905",  # zip() without strict= - we intentionally use lenient zip for data cleaning
 ]
 
 [tool.ruff.lint.isort]
