@@ -1,6 +1,7 @@
 """CLI entrypoint for cleanmydata using Typer."""
 
 import os
+from pathlib import Path
 
 import typer
 from rich import box
@@ -8,7 +9,8 @@ from rich.console import Console
 from rich.table import Table
 
 from cleanmydata.clean import clean_data
-from cleanmydata.utils import load_data
+from cleanmydata.exceptions import DataLoadError
+from cleanmydata.utils.io import read_data
 
 app = typer.Typer(
     name="cleanmydata",
@@ -29,7 +31,11 @@ def clean(
     ),
 ):
     """Clean a messy dataset."""
-    df = load_data(path, verbose=verbose)
+    try:
+        df = read_data(Path(path))
+    except (FileNotFoundError, DataLoadError) as e:
+        console.print(f"[red]Error loading dataset: {e}[/red]")
+        raise typer.Exit(code=1) from e
 
     if df.empty:
         console.print("[red]Failed to load dataset or file is empty.[/red]")

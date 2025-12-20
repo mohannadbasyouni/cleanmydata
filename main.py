@@ -1,12 +1,14 @@
 import argparse
 import os
+from pathlib import Path
 
 from rich import box
 from rich.console import Console
 from rich.table import Table
 
 from cleanmydata.clean import clean_data
-from cleanmydata.utils import load_data
+from cleanmydata.exceptions import DataLoadError
+from cleanmydata.utils.io import read_data
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CleanMyData - Clean a messy dataset")
@@ -22,11 +24,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    df = load_data(args.path, verbose=args.verbose)
+    try:
+        df = read_data(Path(args.path))
+    except (FileNotFoundError, DataLoadError) as e:
+        print(f"Error loading dataset: {e}")
+        exit(1)
 
     if df.empty:
         print("Failed to load dataset or file is empty.")
-        exit()
+        exit(1)
 
     if args.verbose:
         console = Console()

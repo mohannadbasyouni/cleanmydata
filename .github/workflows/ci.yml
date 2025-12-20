@@ -17,11 +17,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          python -m pip install ruff
       - name: Run ruff check
-        run: ruff check .
+        run: python -m ruff check .
       - name: Run ruff format check
-        run: ruff format --check .
+        run: python -m ruff format --check .
 
   test:
     runs-on: ubuntu-latest
@@ -36,10 +36,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[cli]"
-          pip install pytest
+          python -m pip install -e ".[cli,test]"
       - name: Run tests
-        run: pytest -v
+        run: python -m pytest -v
 
   packaging:
     runs-on: ubuntu-latest
@@ -54,13 +53,16 @@ jobs:
           pip install build
       - name: Test core installation
         run: |
-          pip install -e .
+          python -m pip install -e .
           python -c "import cleanmydata; print('core ok')"
+          python -c "try: import rich; raise AssertionError('rich should not be installed'); except ImportError: pass"
+          python -c "try: import typer; raise AssertionError('typer should not be installed'); except ImportError: pass"
+          echo "core install does not pull CLI deps"
       - name: Test CLI installation
         run: |
-          pip install -e ".[cli]"
-          python -c "import cleanmydata.cli; print('cli ok')"
+          python -m pip install -e ".[cli]"
+          python -c "import cleanmydata.cli; assert hasattr(cleanmydata.cli, 'app'); print('cli ok')"
       - name: Test parquet installation
         run: |
-          pip install -e ".[parquet]"
+          python -m pip install -e ".[parquet]"
           python -c "import cleanmydata; print('parquet ok')"

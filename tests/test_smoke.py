@@ -4,7 +4,7 @@ from pathlib import Path
 
 import cleanmydata
 from cleanmydata.clean import clean_data
-from cleanmydata.utils import load_data
+from cleanmydata.utils.io import read_data
 
 
 def test_import_cleanmydata():
@@ -22,9 +22,9 @@ def test_import_cli():
 
 
 def test_read_data_reads_csv():
-    """Test that load_data can read a CSV file."""
+    """Test that read_data can read a CSV file."""
     fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
-    df = load_data(str(fixture_path), verbose=False)
+    df = read_data(fixture_path)
 
     assert df is not None
     assert not df.empty
@@ -35,7 +35,7 @@ def test_read_data_reads_csv():
 def test_clean_data_basic():
     """Test that clean_data function works on a simple dataset."""
     fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
-    df = load_data(str(fixture_path), verbose=False)
+    df = read_data(fixture_path)
 
     cleaned_df, summary = clean_data(df, verbose=False)
 
