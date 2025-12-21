@@ -16,6 +16,7 @@ venv/
 .coverage
 .coverage.*
 htmlcov/
+.ruff_cache/
 
 # OS/editor
 .DS_Store
@@ -23,21 +24,19 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Local scratch/dev files
-src/new_funcs.py
-
-# Data files and logs
+# Logs
 logs/
-logs/**
-data/*.csv
-data/*.xlsx
-data/*.xls
-data/*.parquet
+
+# Data outputs
+data/**
 !data/retail_sales.csv
 
 # Environment files
 .env
 .env.*
 
-# Documentation images
+# Docs images
 docs/architecture/*.png
+
+# Cursor plans
+.cursor/
