@@ -2,7 +2,10 @@
 
 # Supported file formats for reading/writing
 # IMPORTANT: Do NOT include .parquet yet (will be added in Phase 4)
-SUPPORTED_FORMATS = {".csv", ".xlsx", ".xlsm"}
+CORE_FORMATS = {".csv"}
+# Excel formats require the optional extra: `pip install "cleanmydata[excel]"`.
+EXCEL_FORMATS = {".xlsx", ".xlsm"}
+SUPPORTED_FORMATS = CORE_FORMATS | EXCEL_FORMATS
 
 # Outlier handling methods
 OUTLIER_METHODS = ["cap", "remove", None]

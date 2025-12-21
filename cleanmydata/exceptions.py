@@ -7,6 +7,12 @@ class CleanMyDataError(Exception):
     pass
 
 
+class DependencyError(CleanMyDataError):
+    """Raised when an optional dependency is required but not installed."""
+
+    pass
+
+
 class DataLoadError(CleanMyDataError):
     """Raised when data loading fails."""
 

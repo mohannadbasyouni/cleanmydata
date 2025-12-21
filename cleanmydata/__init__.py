@@ -8,6 +8,7 @@ from cleanmydata.exceptions import (
     CleanMyDataError,
     DataCleaningError,
     DataLoadError,
+    DependencyError,
     ValidationError,
 )
 from cleanmydata.models import CleaningResult, ValidationResult
@@ -20,5 +21,6 @@ __all__ = [
     "CleanMyDataError",
     "DataLoadError",
     "DataCleaningError",
+    "DependencyError",
     "ValidationError",
 ]

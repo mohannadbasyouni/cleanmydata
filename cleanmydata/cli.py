@@ -21,7 +21,9 @@ console = Console()
 
 @app.command()
 def clean(
-    path: str = typer.Argument(..., help="Path to dataset (.csv or .xls/.xlsx)"),
+    path: str = typer.Argument(
+        ..., help=".csv (default), .xlsx/.xlsm (requires cleanmydata[excel])"
+    ),
     output: str | None = typer.Option(
         None, "--output", "-o", help="Output file name (default: original_cleaned.csv)"
     ),
