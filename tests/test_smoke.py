@@ -18,8 +18,9 @@ def test_import_cleanmydata():
 
 
 def test_import_cli():
-    """Test that CLI module can be imported."""
-    import cleanmydata.cli
+    """Test that CLI module can be imported (only when cli extra is installed)."""
+    pytest.importorskip("typer")
+    import cleanmydata.cli  # noqa: F401
 
     assert cleanmydata.cli is not None
     assert hasattr(cleanmydata.cli, "app")
