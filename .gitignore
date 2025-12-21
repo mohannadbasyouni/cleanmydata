@@ -39,5 +39,6 @@ data/**
 # Docs images
 docs/architecture/*.png
 
-# Cursor plans
+# Cursor config
 .cursor/
+!.cursor/plans/cleanmydata.plan.md

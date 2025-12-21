@@ -1,18 +1,29 @@
-# CleanMyData Production-Ready Refactor Plan
+# CleanMyData Refactor Plan
 
 ## Purpose
 
-Transform CleanMyData into a production-ready cleaning library + CLI with:
+Transform CleanMyData into a production-ready cleaning **library + CLI** with:
 
 - stable public API
-- strong boundary separation (core vs CLI)
-- reliable output modes (normal/quiet/silent)
+- strict boundary separation (core vs CLI)
+- reliable output modes + exit codes
 - CI + tests + type checking
 - multi-format I/O via optional extras
+- **Excel optional in the library**, but **bundled by default in the future UI** via extras
 
 ---
 
-## Global Definition of Done (applies to every phase)
+## Current Status (Already Done ✅)
+
+- Ruff configured in `pyproject.toml`
+- Pre-commit hooks installed and enforced
+- CI runs lint + tests and is green on `main`
+- Pandas `SettingWithCopyWarning` eliminated + regression test added
+- Smoke run confirmed working on `messy_data_10k.csv`
+
+---
+
+## Global Definition of Done (Applies to Every PR)
 
 **Code Quality**
 
@@ -22,18 +33,17 @@ Transform CleanMyData into a production-ready cleaning library + CLI with:
 
 **Testing**
 
-- all tests pass locally + in CI
-- coverage meets phase target (see phases)
+- tests pass locally and in CI
 - no skipped tests without documented reason
+- PR includes tests for any new contract/behavior
 
 **CI/CD**
 
-- CI green on `main`
-- lint + tests + (type check when added) all pass
+- CI green on PRs + `main`
 
 **Docs**
 
-- CHANGELOG updated per phase
+- CHANGELOG updated when user-facing behavior changes
 - public API changes documented
 - breaking changes include migration notes
 
@@ -44,357 +54,439 @@ Transform CleanMyData into a production-ready cleaning library + CLI with:
 
 ---
 
-## Non-Negotiable Architecture Rules
+## Non-Negotiable Architecture Rules (Authoritative)
 
-1) **Core dependency-minimal**
-Core deps: `pandas`, `openpyxl`, `structlog` only.
-CLI deps are extras.
+1. **Core dependencies are minimal (library-first)**
 
-2) **Core is UI-agnostic**
-Core must not import `rich`, `typer`, `pydantic`.
+Core deps are exactly:
 
-3) **Boundary config**
-Core uses `CleaningConfig` (dataclass).
-CLI uses `CLIConfig` (Pydantic) and converts into `CleaningConfig`.
+- `pandas`
+- `structlog`
 
-4) **Library-safe logging**
-Use a named logger `"cleanmydata"`. Never touch root logger.
-Core never auto-configures logging.
+2. **Excel is optional**
 
-5) **CLI wiring via factory**
-`AppContext.create()` wires console/logging/config.
-Core functions do not auto-create context.
+Excel support is an optional extra:
+
+- `cleanmydata[excel] `installs `openpyxl`
+
+3. **Core is UI-agnostic**
+
+Core must not import:
+
+- `rich`
+- `typer`
+- `pydantic`
+
+4. **Config boundary**
+
+- Core uses `CleaningConfig` (dataclass)
+- CLI uses `CLIConfig` (Pydantic) **later** and converts into `CleaningConfig`
+
+5. **Library-safe logging**
+
+- use a named logger `"cleanmydata"`
+- core never touches root logger
+- core never auto-configures logging
+
+6. **CLI wiring via factory**
+
+- `AppContext.create()` wires console/logging/config once
+- core functions do not auto-create context
 
 ---
 
 ## Python Support
 
 - Minimum: **3.10**
-- CI/test matrix later: **3.10 / 3.11 / 3.12**
+- CI matrix later: **3.10 / 3.11 / 3.12**
 
 ---
 
-# Phase 1 — Foundation + Bug Fixes (PR-sized)
+# Phase 1 — Core Contracts + CLI Reliability (PR-sized)
 
-**Goal:** eliminate known bugs + establish anchor modules early.
+**Goal:** lock CLI behavior + establish stable core primitives before any restructuring.
 
-### PR 1.1 — Fix known CLI bugs
+## PR 1.1 — Output modes contract + exit codes (authoritative)
 
-- Fix: log message “jumping”
-- Fix: quiet mode leaking output
-- Fix: spinner cleanup on exceptions
-- Improve: user-facing messages clarity
-**Exit:** manual smoke: `clean` command behaves in normal/quiet/silent.
+**Output contract**
 
-### PR 1.2 — Output modes contract + exit codes (implement)
+- **Normal:** info/progress on stdout; errors on stderr
+- **Quiet:** no info/progress; errors on stderr
+- **Silent:** no stdout; errors on stderr (still returns correct non-zero exit codes on failures)
 
-- Implement modes:
-- Normal: info+errors ok
-- Quiet: suppress info/progress; keep errors on stderr
-- Silent: no stdout/stderr
-- Exit codes:
-- 0 success
-- 1 general error
-- 2 invalid input/config
-- 3 I/O error
-**Exit:** running CLI returns correct output + exit codes.
+**Exit codes**
 
-### PR 1.3 — Add anchor modules (no big refactor yet)
+- `0` success
+- `1` general error
+- `2` invalid input/config
+- `3` I/O error
 
-Create:
+**Exit**
 
-- `constants.py` (IMPORTANT: **do NOT include `.parquet` yet**)
-- `config.py` (`CleaningConfig` dataclass + `validate()`)
-- `exceptions.py` (CleanMyDataError family)
-- `models.py` (`CleaningResult`, `ValidationResult`; success based on **errors**, not warnings)
-**Exit:** imports work and are used at least once by CLI/core.
+- automated tests confirm stdout/stderr behavior for normal/quiet/silent
+- automated tests confirm exit codes for invalid input + I/O error + success
 
-### PR 1.4 — Add basic I/O module + convenience API
+---
 
-Create `utils/io.py`:
+## PR 1.2 — Anchor modules (authoritative core surface)
 
-- `read_data()` supports `.csv`, `.xlsx`, `.xlsm`
-- `write_data()` supports `.csv`, `.xlsx`, `.xlsm`
-- define `clean_file(input_path, output_path, config=None)` calling core `clean_dataframe`
-**Exit:** CLI can call `clean_file` end-to-end for csv/xlsx.
+Add/standardize:
 
-### PR 1.5 — Logging: simplify and make library-safe
+- `constants.py`
+- includes `.csv` always
+- includes `.xlsx`/`.xlsm` as *recognized* formats, but requires excel extra at runtime
+- **do NOT include `.parquet` yet**
+- `exceptions.py`
+- CleanMyDataError base
+- `DependencyError` (missing optional deps)
+- `InvalidInputError`
+- `CleanIOError` (I/O failures wrapped consistently)
+- `models.py`
+- `CleaningResult`, `ValidationResult`
+- success determined by **errors**, not warnings
+- `config.py`
+- `CleaningConfig` dataclass + `.validate()`
 
-Create `utils/logging.py`:
+**Exit**
 
-- named logger only (`cleanmydata`)
-- CLI-only `configure_logging(...)`
-- test helper `reset_logging_for_tests()`
-- guard + `force=True` support
-**Important:** don’t over-mix RichHandler + structlog formatting.
-Pick one simple approach:
-- console: RichHandler (human-readable)
-- file: stdlib Formatter
-- structlog configured to emit via stdlib logger
-**Exit:** no root logger config; repeated calls safe; tests can reset.
+- core imports work
+- CLI uses these modules directly (at least once each)
 
-### PR 1.6 — AppContext factory
+---
 
-Create `context.py`:
+## PR 1.3 — I/O module + convenience API (Excel optional behavior enforced)
 
-- `AppContext.create(...)` sets console/logger/config
+Create/standardize `cleanmydata/utils/io.py`:
+
+### `read_data(path: Path) -> pd.DataFrame`
+
+- `.csv` always supported with core install
+- `.xlsx` / `.xlsm` supported only if `openpyxl` is installed
+- if Excel requested and dependency missing:
+- raise `DependencyError` with install hint:
+    - `Excel support is not installed. Install with: pip install "cleanmydata[excel]"`
+
+### `write_data(df: pd.DataFrame, path: Path) -> None`
+
+- `.csv` always supported with core install
+- `.xlsx` / `.xlsm` only if `openpyxl` installed
+- same missing dependency behavior
+
+### `clean_file(input_path, output_path, config=None) -> CleaningResult`
+
+- reads input via `read_data`
+- runs `clean_dataframe` (core)
+- writes via `write_data`
+
+**Exit**
+
+- CLI cleans CSV end-to-end with core install
+- attempting Excel without extra raises DependencyError with the exact hint
+- tests cover:
+- CSV read/write happy path
+- Excel missing-dep error path (read + write)
+
+---
+
+## PR 1.4 — Logging: library-safe, simple, resettable
+
+Create `cleanmydata/utils/logging.py`:
+
+- `get_logger()` returns named logger `"cleanmydata"` only
+- CLI-only `configure_logging(...)` configures handlers
+- `reset_logging_for_tests()` exists and is used by tests
+
+**Logging rules**
+
+- console uses RichHandler (CLI-only)
+- file uses stdlib Formatter
+- structlog emits via stdlib logger
+- no mixed formatting stacks
+
+**Exit**
+
+- no root logger config anywhere in core
+- repeated calls do not duplicate handlers
+- tests can reset logging cleanly
+
+---
+
+## PR 1.5 — AppContext factory + CLI wiring cleanup
+
+Create `cleanmydata/context.py`:
+
+- `AppContext.create(mode, log_to_file, verbose, config)` builds console/logger/config once
 - silent overrides quiet
-- warnings capture only from CLI path (optional flag)
-**Exit:** CLI builds context once and passes through.
+- CLI constructs one context and passes it through
+- CLI maps exceptions to exit codes in exactly one place
 
-**Phase 1 Exit Criteria**
+**Exit**
 
-- bugs fixed, anchor modules exist, clean_file works, modes behave, named logging works.
-
----
-
-# Phase 2 — Quality Infrastructure (CI-first)
-
-**Goal:** enforce linting + run tests + validate packaging/extras early.
-
-### PR 2.1 — Ruff + pre-commit
-
-- Add Ruff config to `pyproject.toml`
-- Add `.pre-commit-config.yaml`
-**Exit:** `pre-commit run --all-files` passes locally.
-
-### PR 2.2 — CI: lint + tests
-
-- Add `.github/workflows/ci.yml` with:
-- lint job (ruff check + format --check)
-- test job (pytest)
-**Exit:** CI green on PR.
-
-### PR 2.3 — Packaging/extras smoke job (early)
-
-Add CI job that verifies:
-
-- `pip install .` (core install)
-- `pip install ".[cli]"` imports CLI module
-- `pip install ".[parquet]"` just verifies install succeeds (feature later)
-**Exit:** packaging job green.
-
-**Phase 2 Exit Criteria**
-
-- CI green, lint enforced, extras validated.
+- CLI has a single initialization point for console/logging/config
+- exit-code mapping is centralized and fully testable
 
 ---
 
-# Phase 3 — Basic Tests (30–40% coverage)
+## Phase 1 Exit Criteria
 
-**Goal:** protect boundaries and output modes before restructure.
-
-### PR 3.1 — Test skeleton + key unit tests
-
-Add `tests/` with:
-
-- config validation tests
-- exceptions/models tests
-- io read/write happy path tests
-- context creation tests
-**Exit:** tests pass in CI.
-
-### PR 3.2 — CLI output modes tests (robust)
-
-- Use Typer/Cliqk runner with stderr separated:
-- `CliRunner(mix_stderr=False)` if available
-- Silent mode asserts:
-- stdout == ""
-- stderr == ""
-- Avoid brittle Rich string checks (assert empty/non-empty only)
-**Exit:** mode behavior locked by tests.
-
-**Phase 3 Exit Criteria**
-
-- coverage 30–40%, output modes reliably tested.
+- output modes + exit codes are locked by tests
+- anchor modules exist and are used
+- `clean_file` works end-to-end for CSV with core install
+- Excel without extra fails with DependencyError + install hint
+- logging is named + library-safe
+- context wiring is centralized
 
 ---
 
-# Phase 4 — Restructure (after tests)
+# Phase 2 — Packaging + Extras Enforcement (Excel Optional Strategy)
+
+**Goal:** ensure installs match the architecture rules and enforce extras behavior.
+
+## PR 2.1 — Fix `pyproject.toml` to enforce minimal core + extras
+
+**Core dependencies**
+
+- keep: `pandas>=2.0.0`
+- add: `structlog>=24.0.0`
+- remove: `numpy` from core dependencies
+- remove: `openpyxl` from core dependencies
+
+**Optional dependencies**
+
+- `cli`: `rich>=14.0.0`, `typer>=0.9.0`
+- `excel`: `openpyxl>=3.1.0`
+- `parquet`: `pyarrow>=10.0.0` (install-only for now)
+- `test`: `pytest>=7.0.0`, `pytest-cov>=4.0.0`
+- `dev`: `pre-commit`, `mypy`, `tox`
+
+**Exit**
+
+- `pip install .` works (core: CSV only)
+- `pip install ".[excel]"` enables Excel read/write
+- `pip install ".[cli]"` imports CLI
+- `pip install ".[parquet]"` installs successfully (feature later)
+- CI includes packaging job running these installs
+
+---
+
+## PR 2.2 — Add `all` extra explicitly (literal union only)
+
+Define `all` as a literal union list of packages (no nested extras references).**Exit**
+
+- `pip install ".[all]"` works reliably
+
+---
+
+## Phase 2 Exit Criteria
+
+- packaging rules enforced by CI
+- core install does not pull CLI or Excel deps
+- Excel support works only when `excel` extra is installed
+
+---
+
+# Phase 3 — Tests That Matter (Coverage that buys confidence)
+
+**Goal:** protect contracts and boundaries.**Coverage targets**
+
+- overall: 70%+
+- critical modules (config/exceptions/models/io/context/cli): 90%+
+
+## PR 3.1 — Core unit tests
+
+Add tests for:
+
+- config validation
+- exceptions/models correctness
+- io CSV behavior
+- io Excel missing-dep behavior
+- logging reset behavior
+- context creation + mode handling
+
+**Exit**
+
+- CI green
+- coverage targets met for critical modules
+
+---
+
+## PR 3.2 — CLI contract tests (stdout/stderr/exit codes + extras behavior)
+
+Use `typer.testing.CliRunner` and enforce:
+
+- normal prints info/progress
+- quiet prints no info/progress
+- silent prints nothing on stdout
+- errors always go to stderr
+- exit codes match contract
+- cleaning CSV works with core install
+- cleaning Excel without `excel` extra fails with DependencyError message + correct exit code
+
+**Exit**
+
+- contracts cannot regress without CI failing
+
+---
+
+# Phase 4 — Restructure (Only after tests are strong)
 
 **Goal:** reorganize modules without breaking behavior.
 
-### PR 4.1 — Move to target structure (mechanical refactor)
+## PR 4.1 — Move to target structure (mechanical refactor)
 
-Target:
-cleanmydata/
-cleaning/
-utils/
-validation/
-profiling/
-...
-Keep core UI-agnostic.
+Target structure:
 
-### PR 4.2 — Stable public API exports
+- `cleanmydata/cleaning/` (core cleaning logic)
+- `cleanmydata/utils/` (io/logging helpers)
+- `cleanmydata/validation/`
+- `cleanmydata/cli.py` (CLI boundary only)
+- `cleanmydata/context.py`
+- `cleanmydata/config.py`, `exceptions.py`, `models.py`, `constants.py`
 
-- `cleanmydata/__init__.py` exports:
-- clean_dataframe, clean_file
-- read_data, write_data
-- CleaningConfig
-- result models
-- custom exceptions
-- Version: start `0.1.0`
-**Exit:** Phase 3 tests still pass unchanged.
+**Exit**
 
-**Phase 4 Exit Criteria**
-
-- structure clean, API stable, tests passing.
+- all Phase 3 tests pass unchanged
 
 ---
 
-# Phase 5 — Types + Mypy (relaxed)
+## PR 4.2 — Stable public API exports
 
-**Goal:** add type hints without slowing dev.
+In `cleanmydata/__init__.py` export only:
 
-### PR 5.1 — Add type hints in core + utils
+- `clean_dataframe`, `clean_file`
+- `read_data`, `write_data`
+- `CleaningConfig`
+- result models
+- exceptions
+- `__version__`
+
+**Exit**
+
+- imports are stable
+- version remains `0.1.0` until API stabilization is intentional
+
+---
+
+# Phase 5 — Types + Mypy (Relatively painless)
+
+## PR 5.1 — Add type hints across core + utils
 
 - prefer `Path`, `pd.DataFrame`, `CleaningConfig`
-- avoid `Any` unless unavoidable
+- avoid complex generics
 
-### PR 5.2 — Add mypy relaxed
+## PR 5.2 — Add mypy in relaxed mode
 
 - ignore missing imports
 - warn return Any
-**Exit:** mypy passes.
+- pass CI
 
-**Phase 5 Exit Criteria**
+**Exit**
 
-- mypy green (relaxed), types improve signatures.
+- mypy green
 
 ---
 
-# Phase 6 — Hardening (80%+ coverage + tox + security)
+# Phase 6 — Hardening (Confidence tooling)
 
-**Goal:** production confidence.
-
-### PR 6.1 — Expand tests to 80%+
-
-- hypothesis property tests where meaningful
-- logging tests (guard/force/reset)
-- output modes exhaustive
-- io error branches (permissions, missing files)
-
-### PR 6.2 — tox matrix
+## PR 6.1 — tox matrix
 
 - 3.10 / 3.11 / 3.12
 
-### PR 6.3 — bandit (reasonable config)
+## PR 6.2 — Security scan (Bandit) non-blocking
 
-- don’t fail build on noisy pandas patterns unless real issues
+- run Bandit in CI
+- tune config to avoid noisy false positives
+- do not fail builds except on real issues
 
-### PR 6.4 — selective strict mypy
+## PR 6.3 — Expand tests to hit coverage targets
 
-- strict in utils/context/cli/config/models/exceptions
-- lighter in cleaning modules initially
+- focus coverage on contracts and boundaries
+- add I/O error branch tests
+- add logging guard tests
 
-**Phase 6 Exit Criteria**
+**Exit**
 
-- 80%+ coverage, tox green, security scan added, selective strict typing green.
+- tox green
+- Bandit runs and reports
+- coverage targets met
 
 ---
 
-# Phase 7 — CLI & Config (Pydantic boundary)
+# Phase 7 — CLI Config Boundary (Pydantic)
 
-**Goal:** modern CLI UX with strict boundary.
+**Goal:** strict input validation without polluting core.
 
-### PR 7.1 — CLIConfig (Pydantic) + conversion
+## PR 7.1 — CLIConfig (Pydantic) + conversion
 
 - CLI reads args/env/yaml
-- validates via Pydantic
-- converts into `CleaningConfig`
+- validates in CLI only
+- converts to `CleaningConfig`
 
-### PR 7.2 — Config precedence
+## PR 7.2 — Config precedence contract
 
-args > env > yaml > defaults
+- args > env > yaml > defaults
+- tests enforce precedence
 
-### PR 7.3 — Typer UX polish
+## PR 7.3 — UX polish
 
-- use `raise typer.Exit(code=...)`
-- explicitly honor quiet/silent everywhere
-
-**Phase 7 Exit Criteria**
-
-- config boundary enforced, CLI consistent.
+- consistent error messages
+- `raise typer.Exit(code=...)`
+- mode handling consistent across all CLI paths
 
 ---
 
-# Phase 8 — Multi-format I/O (Parquet)
+# Phase 8 — Parquet via Optional Extra
 
-**Goal:** add `.parquet` via optional extra safely.
+## PR 8.1 — Parquet read/write
 
-### PR 8.1 — Parquet read/write
+- if `pyarrow` missing: raise `DependencyError` with install hint
+- add `.parquet` to constants
+- tests cover missing dependency path
 
-- if pyarrow missing: raise `DependencyError` with install hint
-- update constants: add `.parquet` to SUPPORTED_FORMATS
-- tests cover missing pyarrow path
+## PR 8.2 — `.xls` explicitly rejected
 
-### PR 8.2 — `.xls` explicitly rejected
-
-- helpful error message + how to convert
-- tests for `.xls` rejection
-
-**Phase 8 Exit Criteria**
-
-- CSV/XLSX/XLSM/Parquet supported; `.xls` rejected cleanly.
+- clear error + conversion hint
+- tests
 
 ---
 
-# Phase 9 — Optional Modules (profiling/validation/recipes)
+# Phase 9 — Optional Modules (No core bloat)
 
-**Goal:** features without dependency bloat.
+## PR 9.1 — Profiling (extra)
 
-### PR 9.1 — Profiling extra
+- optional profiling deps
+- missing deps raise DependencyError
 
-- optional `profiling` extra
-- missing deps => `DependencyError`
-
-### PR 9.2 — Recipes
+## PR 9.2 — Recipes
 
 - save/load YAML configs validated at CLI boundary
 
-### PR 9.3 — Schema validation (pandera extra)
+## PR 9.3 — Schema validation (pandera extra)
 
-- optional validate/infer
-
-**Phase 9 Exit Criteria**
-
-- optional features work without polluting core deps.
+- optional schema validation without polluting core
 
 ---
 
 # Phase 10 — Documentation
 
-**Goal:** usable docs + contributor guide.
+Docs must include:
 
-Docs:
-
-- installation
+- install (core + extras: cli/excel/parquet)
 - quickstart
-- cli usage + output modes
-- configuration + precedence
-- formats
-- architecture (dependency split / logging / config boundary)
-- dev docs (testing, DoD)
-
-**Phase 10 Exit Criteria**
-
-- docs complete, API documented, CHANGELOG maintained.
-
----
-
-## Packaging Rules (extras)
-
-- Core deps only in `[project.dependencies]`
-- CLI deps only in `[project.optional-dependencies].cli`
-- `all` is literal union list (no nested extras references)
+- CLI usage + modes + exit codes
+- config precedence
+- formats (CSV always; Excel via `excel` extra; parquet via `parquet` extra)
+- architecture boundaries
+- contributing (tests, ruff, mypy, tox, release)
 
 ---
 
 ## Success Metrics
 
 - CI always green on main
-- coverage 80%+
+- core install does not pull CLI or Excel deps
+- CLI output modes + exit codes locked by tests
+- coverage: overall 70%+, critical modules 90%+
 - tox passes 3.10–3.12
-- library install does not pull CLI deps
-- silent mode produces zero stdout/stderr
-- stable public API + documented changes
+- Excel works only when `excel` extra installed, with tested missing-dep error path
+- parquet works via extra later, with tested missing-dep error path
