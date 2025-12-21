@@ -1,8 +1,11 @@
 """Utility functions for cleanmydata."""
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
+
+RUN_START_RE = re.compile(r"Cleaning Run #\d+ — Started")
 
 
 # Deprecated: will remove in v0.2
@@ -39,10 +42,10 @@ def write_log(
             if has_started and not has_completed:
                 previous_incomplete = True
 
-    # Determine run number
+    # Determine run number (count only "Started" lines)
     try:
         with open(log_path, encoding="utf-8") as f:
-            run_number = sum(1 for line in f if "Cleaning Run #" in line) + 1
+            run_number = sum(1 for line in f if RUN_START_RE.search(line)) + 1
     except FileNotFoundError:
         run_number = 1
 
@@ -59,7 +62,6 @@ def write_log(
             f.write("⚠ Previous run may not have completed cleanly.\n")
             f.write("-" * 80 + "\n")
 
-        # Details (skip if failure before cleaning)
         if summary:
             f.write(f"Duplicates removed: {summary.get('duplicates_removed', 0)}\n")
             f.write(f"Outliers handled: {summary.get('outliers_handled', 0)}\n")
@@ -69,7 +71,6 @@ def write_log(
             f.write("-" * 80 + "\n")
             f.write(f"Duration: {summary.get('duration', 'N/A')}\n")
 
-        # Final line
         end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if status == "failed":
             f.write(f"[{end_time}] ❌ Cleaning Run #{run_number} — Failed ({error})\n")
