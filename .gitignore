@@ -1,32 +1,43 @@
 # Python
 __pycache__/
-**/__pycache__/
 *.py[cod]
-*$py.class
+*.pyd
 *.so
-.Python
+*.egg-info/
+dist/
+build/
 
-# Virtual environment
+# Virtual environments
+.venv/
+.venv_test/
 venv/
-env/
-ENV/
-.venv
 
-# IDEs
+# Test/cache
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ruff_cache/
+
+# OS/editor
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# Data files (ignore all except sample)
-data/*.csv
-data/*.xlsx
-data/*.xls
-!data/retail_sales.csv
 
 # Logs
-logs/cleaning_report.txt
+logs/
 
-# Development/testing files
-new_funcs.py
+# Data outputs
+data/**
+!data/retail_sales.csv
+
+# Environment files
+.env
+.env.*
+
+# Docs images
+docs/architecture/*.png
+
+# Cursor plans
+.cursor/

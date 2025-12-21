@@ -1,0 +1,6 @@
+name,age,city,price
+Alice,25,New York,100.50
+Bob,30,Los Angeles,200.75
+Alice,25,New York,100.50
+Charlie,,San Francisco,300.00
+David,35,Chicago,150.25
