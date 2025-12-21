@@ -488,5 +488,3 @@ Docs must include:
 - CLI output modes + exit codes locked by tests
 - coverage: overall 70%+, critical modules 90%+
 - tox passes 3.10–3.12
-- Excel works only when `excel` extra installed, with tested missing-dep error path
-- parquet works via extra later, with tested missing-dep error path
