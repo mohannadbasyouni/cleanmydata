@@ -44,3 +44,21 @@ def test_clean_data_basic():
     assert isinstance(summary, dict)
     assert "rows" in summary
     assert "columns" in summary
+
+
+def test_clean_data_emits_no_settingwithcopywarning():
+    """Ensure cleaning does not emit Pandas SettingWithCopyWarning."""
+    import warnings
+
+    from pandas.errors import SettingWithCopyWarning
+
+    fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
+    df = read_data(fixture_path)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", SettingWithCopyWarning)
+        clean_data(df, verbose=False)
+
+    assert not any(issubclass(w.category, SettingWithCopyWarning) for w in caught), (
+        "clean_data emitted SettingWithCopyWarning"
+    )

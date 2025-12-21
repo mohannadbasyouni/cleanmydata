@@ -150,11 +150,11 @@ def remove_duplicates(
     # Optional normalization before duplicate detection
     if normalize_text:
         text_cols = df.select_dtypes(include="object").columns
-        df[text_cols] = df[text_cols].apply(lambda col: col.str.strip().str.lower())
+        df.loc[:, text_cols] = df.loc[:, text_cols].apply(lambda col: col.str.strip().str.lower())
 
     dup_mask = df.duplicated(subset=subset, keep=keep)
-    removed_rows = df[dup_mask]
-    df_cleaned = df[~dup_mask]
+    removed_rows = df.loc[dup_mask].copy()
+    df_cleaned = df.loc[~dup_mask].copy()
 
     if return_report:
         return df_cleaned, removed_rows
@@ -199,7 +199,7 @@ def clean_text_columns(df, lowercase=True, verbose=False, categorical_mapping=No
         return unicodedata.normalize("NFKC", s) if isinstance(s, str) else s
 
     for col in df.select_dtypes(include=["object", "string"]):
-        df[col] = (
+        df.loc[:, col] = (
             df[col]
             .astype("string")
             .replace(["nan", "none", "null"], pd.NA)
@@ -208,7 +208,7 @@ def clean_text_columns(df, lowercase=True, verbose=False, categorical_mapping=No
             .map(normalize_unicode)
         )
         if lowercase:
-            df[col] = df[col].str.lower()
+            df.loc[:, col] = df[col].str.lower()
 
     if categorical_mapping:
         df = normalize_categorical_text(df, mapping=categorical_mapping, verbose=verbose)
@@ -343,7 +343,7 @@ def handle_outliers(df, method="cap", auto_detect=True, verbose=False):
 
         # ---------- OUTLIER HANDLING ----------
         if method == "remove":
-            df = df.loc[~mask]
+            df = df.loc[~mask].copy()
             outliers_removed += outlier_count
 
         elif method == "cap":
@@ -385,7 +385,7 @@ def fill_missing_values(df, verbose=False, numeric_strategy="auto", datetime_str
                 fill_val = False
             else:
                 fill_val = "Unknown"
-            df[col] = series.fillna(fill_val)
+            df.loc[:, col] = series.fillna(fill_val)
             missing_filled += missing_count
             continue
 
@@ -403,7 +403,7 @@ def fill_missing_values(df, verbose=False, numeric_strategy="auto", datetime_str
                 else:
                     fill_val = series.mean()
 
-            df[col] = series.fillna(fill_val)
+            df.loc[:, col] = series.fillna(fill_val)
 
         # ---------- DATETIME ----------
         elif np.issubdtype(series.dtype, np.datetime64):
@@ -419,26 +419,26 @@ def fill_missing_values(df, verbose=False, numeric_strategy="auto", datetime_str
                     dup_ratio = 1 - valid_series.nunique() / len(valid_series)
 
                     if regularity < 0.2:
-                        df[col] = series.fillna(method="ffill")
+                        df.loc[:, col] = series.fillna(method="ffill")
                     elif dup_ratio > 0.3:
                         mode_val = series.mode()
                         fill_val = mode_val[0] if not mode_val.empty else series.median()
-                        df[col] = series.fillna(fill_val)
+                        df.loc[:, col] = series.fillna(fill_val)
                     else:
                         fill_val = series.median()
-                        df[col] = series.fillna(fill_val)
+                        df.loc[:, col] = series.fillna(fill_val)
                 else:
                     fill_val = series.median()
-                    df[col] = series.fillna(fill_val)
+                    df.loc[:, col] = series.fillna(fill_val)
             else:
                 fill_val = series.median()
-                df[col] = series.fillna(fill_val)
+                df.loc[:, col] = series.fillna(fill_val)
 
         # ---------- BOOLEAN ----------
         elif series.dtype == "bool":
             mode_val = series.mode()
             fill_val = mode_val[0] if not mode_val.empty else False
-            df[col] = series.fillna(fill_val)
+            df.loc[:, col] = series.fillna(fill_val)
 
         # ---------- CATEGORY ----------
         elif pd.api.types.is_categorical_dtype(series):
@@ -446,13 +446,13 @@ def fill_missing_values(df, verbose=False, numeric_strategy="auto", datetime_str
             fill_val = mode_val[0] if not mode_val.empty else "Unknown"
             if fill_val not in series.cat.categories:
                 series = series.cat.add_categories([fill_val])
-            df[col] = series.fillna(fill_val)
+            df.loc[:, col] = series.fillna(fill_val)
 
         # ---------- OBJECT / STRING ----------
         else:
             mode_val = series.mode()
             fill_val = mode_val[0] if not mode_val.empty else "Unknown"
-            df[col] = series.fillna(fill_val)
+            df.loc[:, col] = series.fillna(fill_val)
 
         missing_filled += missing_count
 
