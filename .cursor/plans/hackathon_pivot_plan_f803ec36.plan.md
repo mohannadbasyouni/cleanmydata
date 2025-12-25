@@ -304,4 +304,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 ### Hackathon-Specific Gotchas
 
 - **Vertex AI quota**: Request quota increase NOW if needed
-- **Datadog trial**: Ensure you have APM + Logs enabled, not just infra
