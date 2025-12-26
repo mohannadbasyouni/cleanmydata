@@ -4,6 +4,21 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
+try:
+    from ddtrace import tracer
+except ImportError:
+    # Fallback for when ddtrace is not installed
+    class NoOpTracer:
+        """No-op tracer for when ddtrace is not available."""
+
+        def trace(self, *args, **kwargs):
+            """Return a no-op context manager."""
+            from contextlib import nullcontext
+
+            return nullcontext()
+
+    tracer = NoOpTracer()
+
 # ------------------- CLEAN DATA MASTER ------------------- #
 
 
@@ -44,52 +59,77 @@ def clean_data(
     }
 
     try:
-        # ---------- 1. Remove duplicates ----------
-        before = len(df)
-        df = remove_duplicates(df, verbose=verbose)
-        after = len(df)
-        summary["duplicates_removed"] = before - after
+        with tracer.trace("cleaning.clean_data", service="cleanmydata") as span:
+            span.set_tag("rows", len(df))
+            span.set_tag("columns", len(df.columns))
+            if dataset_name:
+                span.set_tag("dataset_name", dataset_name)
 
-        # ---------- 2. Normalize column names ----------
-        if normalize_cols:
-            df = normalize_column_names(df, verbose=verbose)
+            # ---------- 1. Remove duplicates ----------
+            with tracer.trace("cleaning.remove_duplicates", service="cleanmydata") as dup_span:
+                before = len(df)
+                dup_span.set_tag("rows_before", before)
+                df = remove_duplicates(df, verbose=verbose)
+                after = len(df)
+                summary["duplicates_removed"] = before - after
+                dup_span.set_tag("rows_after", after)
+                dup_span.set_tag("duplicates_removed", before - after)
 
-        # ---------- 3. Clean text & categorical values ----------
-        if clean_text:
-            before_text_cols = len(df.select_dtypes(include=["object", "string"]).columns)
-            df = clean_text_columns(
-                df,
-                lowercase=True,
-                verbose=verbose,
-                categorical_mapping=categorical_mapping,
-            )
-            summary["text_unconverted"] = before_text_cols  # tracked only
+            # ---------- 2. Normalize column names ----------
+            if normalize_cols:
+                with tracer.trace("cleaning.normalize_columns", service="cleanmydata"):
+                    df = normalize_column_names(df, verbose=verbose)
 
-        # ---------- 4. Standardize formats ----------
-        df = standardize_formats(df, verbose=verbose)
-        converted_cols = [
-            c
-            for c in df.columns
-            if pd.api.types.is_numeric_dtype(df[c]) or pd.api.types.is_datetime64_any_dtype(df[c])
-        ]
-        summary["columns_standardized"] = len(converted_cols)
+            # ---------- 3. Clean text & categorical values ----------
+            if clean_text:
+                with tracer.trace("cleaning.clean_text", service="cleanmydata") as text_span:
+                    before_text_cols = len(df.select_dtypes(include=["object", "string"]).columns)
+                    text_span.set_tag("text_columns_before", before_text_cols)
+                    df = clean_text_columns(
+                        df,
+                        lowercase=True,
+                        verbose=verbose,
+                        categorical_mapping=categorical_mapping,
+                    )
+                    summary["text_unconverted"] = before_text_cols  # tracked only
 
-        # ---------- 5. Handle outliers ----------
-        if outliers:
-            before_outlier_rows = len(df)
-            df = handle_outliers(
-                df, method=outliers, auto_detect=auto_outlier_detect, verbose=verbose
-            )
-            after_outlier_rows = len(df)
-            summary["outliers_handled"] = (
-                before_outlier_rows - after_outlier_rows if outliers == "remove" else 0
-            )
+            # ---------- 4. Standardize formats ----------
+            with tracer.trace("cleaning.standardize_formats", service="cleanmydata") as std_span:
+                df = standardize_formats(df, verbose=verbose)
+                converted_cols = [
+                    c
+                    for c in df.columns
+                    if pd.api.types.is_numeric_dtype(df[c])
+                    or pd.api.types.is_datetime64_any_dtype(df[c])
+                ]
+                summary["columns_standardized"] = len(converted_cols)
+                std_span.set_tag("columns_standardized", len(converted_cols))
 
-        # ---------- 6. Fill missing values ----------
-        before_na = df.isna().sum().sum()
-        df = fill_missing_values(df, verbose=verbose)
-        after_na = df.isna().sum().sum()
-        summary["missing_filled"] = int(before_na - after_na)
+            # ---------- 5. Handle outliers ----------
+            if outliers:
+                with tracer.trace("cleaning.handle_outliers", service="cleanmydata") as out_span:
+                    out_span.set_tag("method", outliers)
+                    out_span.set_tag("auto_detect", auto_outlier_detect)
+                    before_outlier_rows = len(df)
+                    df = handle_outliers(
+                        df, method=outliers, auto_detect=auto_outlier_detect, verbose=verbose
+                    )
+                    after_outlier_rows = len(df)
+                    summary["outliers_handled"] = (
+                        before_outlier_rows - after_outlier_rows if outliers == "remove" else 0
+                    )
+                    out_span.set_tag("rows_before", before_outlier_rows)
+                    out_span.set_tag("rows_after", after_outlier_rows)
+
+            # ---------- 6. Fill missing values ----------
+            with tracer.trace("cleaning.fill_missing", service="cleanmydata") as miss_span:
+                before_na = df.isna().sum().sum()
+                miss_span.set_tag("missing_before", int(before_na))
+                df = fill_missing_values(df, verbose=verbose)
+                after_na = df.isna().sum().sum()
+                summary["missing_filled"] = int(before_na - after_na)
+                miss_span.set_tag("missing_filled", int(before_na - after_na))
+                miss_span.set_tag("missing_after", int(after_na))
 
     except Exception as e:
         # Capture any unexpected error

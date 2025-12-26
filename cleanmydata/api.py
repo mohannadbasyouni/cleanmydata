@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from ddtrace import config as dd_config
+from ddtrace import patch, tracer
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -16,6 +18,22 @@ from pydantic import BaseModel, Field
 from cleanmydata.clean import clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DataLoadError
+
+# -----------------------------------------------------------------------------
+# Datadog APM Configuration
+# -----------------------------------------------------------------------------
+# Required environment variables for Datadog APM:
+# - DD_SERVICE: Service name (default: cleanmydata)
+# - DD_ENV: Environment (e.g., dev, staging, prod)
+# - DD_VERSION: Application version (e.g., 0.1.0)
+# - DD_AGENT_HOST: Datadog Agent hostname (default: localhost)
+# - DD_TRACE_AGENT_PORT: Datadog Agent port (default: 8126)
+
+# Configure service name and auto-instrumentation
+dd_config.service = "cleanmydata"
+
+# Enable FastAPI auto-instrumentation
+patch(fastapi=True)
 
 # -----------------------------------------------------------------------------
 # Application Setup
@@ -144,83 +162,114 @@ job_store = JobStore()
 
 def read_uploaded_file(file: UploadFile) -> pd.DataFrame:
     """Read an uploaded file into a DataFrame."""
-    filename = file.filename or "unknown"
-    suffix = Path(filename).suffix.lower()
+    with tracer.trace("cleaning.file_parse", service="cleanmydata") as span:
+        filename = file.filename or "unknown"
+        suffix = Path(filename).suffix.lower()
 
-    if suffix not in (".csv", ".xlsx", ".xlsm"):
-        raise DataLoadError(
-            f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm"
-        )
+        span.set_tag("filename", filename)
+        span.set_tag("file_format", suffix)
 
-    content = file.file.read()
-
-    if suffix == ".csv":
-        try:
-            return pd.read_csv(io.BytesIO(content))
-        except pd.errors.EmptyDataError as e:
-            raise DataLoadError("The uploaded CSV file is empty or invalid") from e
-        except pd.errors.ParserError as e:
-            raise DataLoadError(f"Failed to parse CSV file: {e}") from e
-    else:
-        # Excel files
-        try:
-            import openpyxl  # noqa: F401
-        except ImportError as e:
+        if suffix not in (".csv", ".xlsx", ".xlsm"):
+            span.set_tag("error", True)
             raise DataLoadError(
-                "Excel support is not installed on the server. Please upload a CSV file."
-            ) from e
-        try:
-            return pd.read_excel(io.BytesIO(content))
-        except Exception as e:
-            raise DataLoadError(f"Failed to read Excel file: {e}") from e
+                f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm"
+            )
+
+        content = file.file.read()
+        span.set_tag("file_size_bytes", len(content))
+
+        if suffix == ".csv":
+            try:
+                df = pd.read_csv(io.BytesIO(content))
+                span.set_tag("rows", len(df))
+                span.set_tag("columns", len(df.columns))
+                return df
+            except pd.errors.EmptyDataError as e:
+                span.set_tag("error", True)
+                raise DataLoadError("The uploaded CSV file is empty or invalid") from e
+            except pd.errors.ParserError as e:
+                span.set_tag("error", True)
+                raise DataLoadError(f"Failed to parse CSV file: {e}") from e
+        else:
+            # Excel files
+            try:
+                import openpyxl  # noqa: F401
+            except ImportError as e:
+                span.set_tag("error", True)
+                raise DataLoadError(
+                    "Excel support is not installed on the server. Please upload a CSV file."
+                ) from e
+            try:
+                df = pd.read_excel(io.BytesIO(content))
+                span.set_tag("rows", len(df))
+                span.set_tag("columns", len(df.columns))
+                return df
+            except Exception as e:
+                span.set_tag("error", True)
+                raise DataLoadError(f"Failed to read Excel file: {e}") from e
 
 
 def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOptions) -> None:
     """Run the cleaning pipeline as a background task."""
-    job_store.update_job(job_id, status=JobStatus.PROCESSING)
+    with tracer.trace("cleaning.pipeline", service="cleanmydata") as span:
+        span.set_tag("job_id", job_id)
+        span.set_tag("rows_before", len(df))
+        span.set_tag("columns", len(df.columns))
 
-    try:
-        # Build config from options
-        config = CleaningConfig(
-            outliers=options.outliers if options.outliers != "none" else None,
-            normalize_cols=options.normalize_cols,
-            clean_text=options.clean_text,
-            auto_outlier_detect=options.auto_outlier_detect,
-            verbose=False,
-        )
+        job_store.update_job(job_id, status=JobStatus.PROCESSING)
 
-        # Run the cleaning pipeline
-        cleaned_df, summary = clean_data(
-            df,
-            outliers=config.outliers,
-            normalize_cols=config.normalize_cols,
-            clean_text=config.clean_text,
-            auto_outlier_detect=config.auto_outlier_detect,
-            verbose=config.verbose,
-            log=False,
-        )
+        try:
+            # Build config from options
+            config = CleaningConfig(
+                outliers=options.outliers if options.outliers != "none" else None,
+                normalize_cols=options.normalize_cols,
+                clean_text=options.clean_text,
+                auto_outlier_detect=options.auto_outlier_detect,
+                verbose=False,
+            )
 
-        # Save cleaned data
-        output_path = job_store.get_temp_path(job_id, suffix=".csv")
-        cleaned_df.to_csv(output_path, index=False)
+            # Run the cleaning pipeline
+            cleaned_df, summary = clean_data(
+                df,
+                outliers=config.outliers,
+                normalize_cols=config.normalize_cols,
+                clean_text=config.clean_text,
+                auto_outlier_detect=config.auto_outlier_detect,
+                verbose=config.verbose,
+                log=False,
+            )
 
-        # Update job with results
-        job_store.update_job(
-            job_id,
-            status=JobStatus.COMPLETED,
-            completed_at=datetime.utcnow().isoformat() + "Z",
-            summary=CleaningSummary(**summary),
-            output_path=str(output_path),
-            ai_suggestions=[],  # Placeholder for Phase 3 Gemini integration
-        )
+            span.set_tag("rows_after", len(cleaned_df))
+            span.set_tag("duplicates_removed", summary.get("duplicates_removed", 0))
+            span.set_tag("outliers_handled", summary.get("outliers_handled", 0))
+            span.set_tag("missing_filled", summary.get("missing_filled", 0))
 
-    except Exception as e:
-        job_store.update_job(
-            job_id,
-            status=JobStatus.FAILED,
-            completed_at=datetime.utcnow().isoformat() + "Z",
-            error=str(e),
-        )
+            # Save cleaned data
+            with tracer.trace("cleaning.save_output", service="cleanmydata") as save_span:
+                save_span.set_tag("job_id", job_id)
+                output_path = job_store.get_temp_path(job_id, suffix=".csv")
+                cleaned_df.to_csv(output_path, index=False)
+                save_span.set_tag("output_path", str(output_path))
+
+            # Update job with results
+            job_store.update_job(
+                job_id,
+                status=JobStatus.COMPLETED,
+                completed_at=datetime.utcnow().isoformat() + "Z",
+                summary=CleaningSummary(**summary),
+                output_path=str(output_path),
+                ai_suggestions=[],  # Placeholder for Phase 3 Gemini integration
+            )
+
+        except Exception as e:
+            span.set_tag("error", True)
+            span.set_tag("error.message", str(e))
+            job_store.update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                completed_at=datetime.utcnow().isoformat() + "Z",
+                error=str(e),
+            )
 
 
 # -----------------------------------------------------------------------------

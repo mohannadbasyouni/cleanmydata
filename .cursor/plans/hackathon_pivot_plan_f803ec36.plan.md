@@ -298,9 +298,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 ---
 
 ## 8. Red Flags and Common Mistakes to Avoid
-
-| Mistake | Why It's Bad | What to Do Instead ||---------|--------------|-------------------|| Using OpenAI/Anthropic | Disqualification risk | Vertex AI Gemini only || Cosmetic Datadog integration | Judges will notice | Instrument meaningfully - business metrics, not just request count || AI modifying data directly | Hard to debug, explain | AI as advisor, deterministic pipeline does transforms || Over-engineering | Won't finish | Keep scope tight - one endpoint, one AI feature || Ignoring error paths | Demo might crash | Trace errors, add fallbacks for Gemini timeouts || No local dev story | Hard to iterate | Docker Compose with Datadog agent for local testing || Sending full datasets to Gemini | Slow, expensive, quota issues | Sample 100 rows max || Forgetting trace correlation | Logs/metrics/traces disconnected | Use ddtrace injection for log correlation |
-
-### Hackathon-Specific Gotchas
-
-- **Vertex AI quota**: Request quota increase NOW if needed

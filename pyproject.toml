@@ -36,6 +36,7 @@ api = [
   "fastapi>=0.109.0",
   "uvicorn[standard]>=0.27.0",
   "python-multipart>=0.0.6",
+  "ddtrace>=2.0.0",
 ]
 
 # CLI UX only.
@@ -70,6 +71,7 @@ all = [
   "fastapi>=0.109.0",
   "uvicorn[standard]>=0.27.0",
   "python-multipart>=0.0.6",
+  "ddtrace>=2.0.0",
   "rich>=14.0.0",
   "typer>=0.9.0",
   "openpyxl>=3.1.0",
