@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from contextlib import nullcontext
@@ -10,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from cleanmydata.ai.prompts import build_quality_prompt
 from cleanmydata.logging import get_logger
 from cleanmydata.models import Suggestion
 
@@ -77,8 +77,8 @@ class GeminiClient:
 
             try:
                 payload = self._build_payload(df, summary, dataset_kind)
-                raw_suggestions = self._invoke_model(payload)
-                suggestions = self._parse_suggestions(raw_suggestions)
+                raw_response = self._invoke_model(payload)
+                suggestions = self._parse_suggestions(raw_response)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.error(
                     "gemini_analysis_failed",
@@ -91,15 +91,16 @@ class GeminiClient:
                 return []
             finally:
                 duration_ms = int((time.perf_counter() - start) * 1000)
+                suggestions_count = len(locals().get("suggestions", []))
                 logger.info(
                     "gemini_analysis_completed",
                     duration_ms=duration_ms,
-                    suggestions=len(locals().get("suggestions", [])),
+                    suggestions_count=suggestions_count,
                     model=self.model,
                 )
                 if span and span is not None:
                     span.set_tag("duration_ms", duration_ms)
-                    span.set_tag("suggestions", len(locals().get("suggestions", [])))
+                    span.set_tag("suggestions_count", suggestions_count)
 
         return suggestions
 
@@ -151,41 +152,46 @@ class GeminiClient:
             "numeric_stats": numeric_stats,
             "sample_rows": safe_sample,
             "instructions": {
-                "output_format": {
-                    "category": "schema|quality|outliers|formatting|duplicates|missing|business_rules",
-                    "severity": "info|warning|critical",
-                    "message": "short human-friendly message",
-                    "column": "optional column name",
-                    "evidence": "optional dict with supporting facts",
+                "output_schema": {
+                    "suggestions": [
+                        {
+                            "category": "schema|quality|missing|duplicates|outliers|formatting|business_rules",
+                            "severity": "info|warning|critical",
+                            "message": "short actionable text",
+                            "column": "optional column name or null",
+                            "evidence": {"optional": "small supporting fields"},
+                        }
+                    ]
                 },
                 "rules": [
                     "Do not include dataset values beyond provided sample.",
                     "Do not invent columns.",
                     "Prefer concise, actionable suggestions.",
-                    "Return a JSON list of suggestions.",
+                    'Return a single JSON object: {"suggestions":[...]}',
+                    "Max 12 suggestions.",
+                    "No markdown, no code fences, no extra text.",
                 ],
             },
         }
 
         return payload
 
-    def _invoke_model(self, payload: dict[str, Any]) -> list[Any]:
+    def _invoke_model(self, payload: dict[str, Any]) -> str | list[Any] | dict[str, Any]:
         """Call Vertex AI Gemini. Separated for easy mocking in tests."""
         try:
             from vertexai import init as vertexai_init  # type: ignore
             from vertexai.generative_models import GenerativeModel  # type: ignore
         except Exception as exc:  # pragma: no cover - optional dependency
             logger.debug("gemini_dependency_missing", error=str(exc))
-            return []
+            return ""
 
         vertexai_init(project=self.project, location=self.location)
         model = GenerativeModel(self.model)
 
+        prompt = build_quality_prompt(payload)
+
         response = model.generate_content(
-            [
-                "You are a data quality analyst. Return JSON only as a list of suggestions.",
-                json.dumps(payload, ensure_ascii=False),
-            ],
+            [prompt],
             generation_config={"response_mime_type": "application/json"},
         )
 
@@ -194,35 +200,85 @@ class GeminiClient:
             parts = response.candidates[0].content.parts
             text = "".join([getattr(p, "text", "") for p in parts])
 
-        if not text:
-            return []
+        return text or ""
 
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            logger.debug("gemini_response_not_json")
-            return []
-
-        if isinstance(parsed, dict) and "suggestions" in parsed:
-            parsed = parsed["suggestions"]
-
-        return parsed if isinstance(parsed, list) else []
-
-    def _parse_suggestions(self, raw: list[Any]) -> list[Suggestion]:
+    def _parse_suggestions(self, raw: str | list[Any] | dict[str, Any]) -> list[Suggestion]:
         suggestions: list[Suggestion] = []
-        for item in raw or []:
+        allowed_categories = {
+            "schema",
+            "quality",
+            "missing",
+            "duplicates",
+            "outliers",
+            "formatting",
+            "business_rules",
+        }
+        allowed_severities = {"info", "warning", "critical"}
+
+        def _coerce_entry(item: dict[str, Any]) -> Suggestion | None:
+            category = str(item.get("category", "quality")).lower()
+            severity = str(item.get("severity", "info")).lower()
+            if category not in allowed_categories:
+                category = "quality"
+            if severity not in allowed_severities:
+                severity = "info"
+            message = str(item.get("message", "")).strip()
+            if not message:
+                return None
+            column_val = item.get("column")
+            if isinstance(column_val, str) and not column_val.strip():
+                column_val = None
+            evidence_val = item.get("evidence")
+            if evidence_val is not None and not isinstance(evidence_val, dict):
+                evidence_val = None
+            return Suggestion(
+                category=category,
+                severity=severity,
+                message=message,
+                column=column_val,
+                evidence=evidence_val,
+            )
+
+        structured: list[Any] | None = None
+
+        if isinstance(raw, list):
+            structured = raw
+        elif isinstance(raw, dict):
+            structured = (
+                raw.get("suggestions") if isinstance(raw.get("suggestions"), list) else None
+            )
+        elif isinstance(raw, str):
+            text = raw.strip()
+            if text.startswith("```"):
+                lines = text.splitlines()
+                if lines and lines[0].lstrip().startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip().startswith("```"):
+                    lines = lines[:-1]
+                text = "\n".join(lines).strip()
+            try:
+                import json  # local import to avoid module import when unused
+
+                parsed = json.loads(text)
+                if isinstance(parsed, dict) and "suggestions" in parsed:
+                    structured = parsed.get("suggestions")
+                elif isinstance(parsed, list):
+                    structured = parsed
+            except Exception as exc:
+                logger.error(
+                    "gemini_parse_failed",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+                return []
+
+        if not structured:
+            return []
+
+        for item in structured[:12]:
             if not isinstance(item, dict):
                 continue
-            try:
-                suggestions.append(
-                    Suggestion(
-                        category=str(item.get("category", "quality")),
-                        severity=str(item.get("severity", "info")),
-                        message=str(item.get("message", "")).strip(),
-                        column=item.get("column"),
-                        evidence=item.get("evidence"),
-                    )
-                )
-            except Exception:
-                continue
+            coerced = _coerce_entry(item)
+            if coerced:
+                suggestions.append(coerced)
         return suggestions

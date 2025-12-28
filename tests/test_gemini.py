@@ -1,6 +1,7 @@
 import pandas as pd
 
 from cleanmydata.ai.gemini import GeminiClient
+from cleanmydata.ai.prompts import build_quality_prompt
 from cleanmydata.models import Suggestion
 
 
@@ -81,3 +82,58 @@ def test_gemini_returns_parsed_suggestions(monkeypatch):
     assert suggestions[0].column == "a"
     assert ("info", "gemini_analysis_completed") in recorder.events
     assert df.equals(_fresh_df())
+
+
+def test_prompt_includes_schema_and_json_requirements():
+    payload = {
+        "schema": [{"name": "a", "dtype": "int64"}],
+        "summary": {"rows": 2, "columns": 1},
+        "sample_rows": [{"a": 1}],
+    }
+    prompt = build_quality_prompt(payload)
+    assert "STRICT JSON" in prompt or "JSON ONLY" in prompt.upper()
+    assert "max 12 suggestions" in prompt
+    assert '"name": "a"' in prompt
+    assert '"dtype": "int64"' in prompt
+
+
+def test_parse_valid_json_object(monkeypatch):
+    client = GeminiClient()
+    json_text = """
+    {
+      "suggestions": [
+        {
+          "category": "schema",
+          "severity": "critical",
+          "message": "Ensure primary key uniqueness",
+          "column": "id",
+          "evidence": {"duplicates": 10}
+        }
+      ]
+    }
+    """
+    suggestions = client._parse_suggestions(json_text)
+    assert len(suggestions) == 1
+    assert suggestions[0].category == "schema"
+    assert suggestions[0].severity == "critical"
+    assert suggestions[0].column == "id"
+
+
+def test_parse_strips_code_fences(monkeypatch):
+    client = GeminiClient()
+    fenced = """```json
+    {"suggestions":[{"category":"quality","severity":"info","message":"trim spaces","column":null}]}
+    ```"""
+    suggestions = client._parse_suggestions(fenced)
+    assert len(suggestions) == 1
+    assert suggestions[0].message == "trim spaces"
+
+
+def test_parse_invalid_json_logs_and_returns_empty(monkeypatch):
+    recorder = RecordingLogger()
+    monkeypatch.setattr("cleanmydata.ai.gemini.logger", recorder)
+    client = GeminiClient()
+    bad_text = "{not valid json"
+    suggestions = client._parse_suggestions(bad_text)
+    assert suggestions == []
+    assert ("error", "gemini_parse_failed") in recorder.events

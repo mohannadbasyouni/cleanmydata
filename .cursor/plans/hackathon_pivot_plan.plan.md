@@ -59,6 +59,8 @@ GET /clean/{job_id}
     - Returns: { "status": "completed", "download_url": "...", "summary": {...}, "ai_suggestions": [...] }
 ```
 
+
+
 ### Phase 2: Datadog Integration (Day 1-2)
 
 Instrument before adding AI to establish baseline telemetry.| Action | Details ||--------|---------|| **Add** | `ddtrace` for automatic APM instrumentation || **Refactor** | [`cleanmydata/utils/io.py`](cleanmydata/utils/io.py) to emit structured JSON logs via `structlog` + Datadog formatter || **Add** | Custom metrics emission in [`cleanmydata/clean.py`](cleanmydata/clean.py) pipeline steps |
@@ -91,6 +93,8 @@ cleanmydata.api.clean (parent span)
   ├── cleanmydata.ai.gemini_analyze (AI span)
   └── cleanmydata.io.write_file
 ```
+
+
 
 ### Custom Metrics (Minimum Viable)
 
@@ -184,6 +188,8 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
     return suggestions
 ```
 
+
+
 ### Why This Positioning Works
 
 - AI is **additive**, not a black box replacing your logic
@@ -208,5 +214,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 | File | Purpose ||------|---------|| `cleanmydata/api.py` | FastAPI application with `/clean` endpoint || `cleanmydata/ai/__init__.py` | AI module init || `cleanmydata/ai/gemini.py` | Vertex AI Gemini client || `cleanmydata/ai/prompts.py` | Prompt templates for data analysis || `cleanmydata/utils/observability.py` | Datadog metrics/logging helpers || `cleanmydata/utils/storage.py` | GCS upload/download helpers || `Dockerfile` | Container for Cloud Run || `cloudbuild.yaml` | Cloud Build config || `.env.example` | Environment variable template |---
 
 ## 7. Why This Scores Well with Judges
-
-### Datadog Challenge Alignment
