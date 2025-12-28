@@ -39,6 +39,11 @@ api = [
   "ddtrace>=2.0.0",
 ]
 
+# GCS storage
+gcs = [
+  "google-cloud-storage>=2.18.0",
+]
+
 # AI (Gemini) dependencies
 ai = [
   "google-cloud-aiplatform>=1.71.1",
@@ -77,6 +82,7 @@ all = [
   "uvicorn[standard]>=0.27.0",
   "python-multipart>=0.0.6",
   "ddtrace>=2.0.0",
+  "google-cloud-storage>=2.18.0",
   "rich>=14.0.0",
   "typer>=0.9.0",
   "openpyxl>=3.1.0",

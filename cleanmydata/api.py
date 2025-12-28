@@ -19,7 +19,9 @@ from cleanmydata.ai.gemini import GeminiClient
 from cleanmydata.clean import _determine_dataset_kind, clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DataLoadError
+from cleanmydata.logging import get_logger
 from cleanmydata.models import Suggestion
+from cleanmydata.utils.storage import get_storage_client
 
 # -----------------------------------------------------------------------------
 # Datadog APM Configuration
@@ -144,6 +146,8 @@ class JobStore:
             "original_filename": original_filename,
             "summary": None,
             "output_path": None,
+            "storage_object_name": None,
+            "download_url": None,
             "ai_suggestions": [],
             "error": None,
         }
@@ -170,6 +174,9 @@ job_store = JobStore()
 # -----------------------------------------------------------------------------
 # Helper Functions
 # -----------------------------------------------------------------------------
+
+logger = get_logger(__name__)
+storage_client = get_storage_client()
 
 
 def read_uploaded_file(file: UploadFile) -> pd.DataFrame:
@@ -265,6 +272,24 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 cleaned_df.to_csv(output_path, index=False)
                 save_span.set_tag("output_path", str(output_path))
 
+            storage_object_name = f"cleanmydata/{job_id}/cleaned.csv"
+            download_url = ""
+            upload_url = ""
+            try:
+                upload_url = storage_client.upload_file(
+                    output_path,
+                    object_name=storage_object_name,
+                    content_type="text/csv",
+                )
+                if upload_url:
+                    download_url = storage_client.generate_download_url(storage_object_name)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "storage_upload_failed",
+                    job_id=job_id,
+                    error=str(exc),
+                )
+
             dataset_kind = _determine_dataset_kind(dataset_name)
             gemini = GeminiClient()
             ai_suggestions: list[Suggestion] = gemini.analyze_data_quality(
@@ -272,12 +297,15 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
             )
 
             # Update job with results
+            fallback_download_url = download_url or f"/clean/{job_id}/download"
             job_store.update_job(
                 job_id,
                 status=JobStatus.COMPLETED,
                 completed_at=datetime.utcnow().isoformat() + "Z",
                 summary=CleaningSummary(**summary),
                 output_path=str(output_path),
+                storage_object_name=storage_object_name if upload_url else None,
+                download_url=fallback_download_url,
                 ai_suggestions=[s.to_dict() for s in ai_suggestions],
             )
 
@@ -392,8 +420,8 @@ async def get_job_status(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     # Build download URL if completed
-    download_url = None
-    if job["status"] == JobStatus.COMPLETED and job["output_path"]:
+    download_url = job.get("download_url")
+    if not download_url and job["status"] == JobStatus.COMPLETED and job["output_path"]:
         download_url = f"/clean/{job_id}/download"
 
     return JobStatusResponse(
