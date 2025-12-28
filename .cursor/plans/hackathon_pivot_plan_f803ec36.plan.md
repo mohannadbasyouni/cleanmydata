@@ -7,10 +7,10 @@ todos:
     status: completed
   - id: dockerfile
     content: Create Dockerfile and cloudbuild.yaml for Cloud Run
-    status: pending
+    status: completed
   - id: datadog-tracing
     content: Add ddtrace instrumentation to pipeline steps in clean.py
-    status: pending
+    status: completed
     dependencies:
       - fastapi-wrapper
   - id: custom-metrics
@@ -293,8 +293,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 
 - Not just "we added Datadog" - observability is **integral to understanding AI behavior**
 - Gemini provides value without being a black box
-- Judges can see exactly what AI contributed via traces
-
----
-
-## 8. Red Flags and Common Mistakes to Avoid

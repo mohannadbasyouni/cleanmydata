@@ -3,9 +3,11 @@
 import builtins
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import cleanmydata
+import cleanmydata.clean as clean
 from cleanmydata.clean import clean_data
 from cleanmydata.exceptions import DependencyError
 from cleanmydata.utils.io import read_data, write_data
@@ -49,6 +51,23 @@ def test_clean_data_basic():
     assert isinstance(summary, dict)
     assert "rows" in summary
     assert "columns" in summary
+
+
+def test_clean_data_reraises_original_exception(monkeypatch):
+    boom = ValueError("boom")
+
+    def explode(*args, **kwargs):
+        raise boom
+
+    monkeypatch.setattr(clean, "remove_duplicates", explode)
+
+    df = pd.DataFrame({"a": [1, 2]})
+
+    with pytest.raises(ValueError) as excinfo:
+        clean_data(df, verbose=False)
+
+    assert isinstance(excinfo.value, ValueError)
+    assert str(excinfo.value) == "boom"
 
 
 def test_clean_data_emits_no_settingwithcopywarning():

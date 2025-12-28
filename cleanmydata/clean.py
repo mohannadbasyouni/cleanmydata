@@ -1,23 +1,87 @@
+import logging
+import os
 import re
 import unicodedata
 
 import numpy as np
 import pandas as pd
 
+from cleanmydata.metrics import MetricsClient, get_metrics_client
+
 try:
     from ddtrace import tracer
 except ImportError:
     # Fallback for when ddtrace is not installed
+    class _NoOpSpan:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):  # noqa: ANN001, D401
+            return False
+
+        def set_tag(self, *args, **kwargs):  # noqa: ARG002
+            return None
+
     class NoOpTracer:
         """No-op tracer for when ddtrace is not available."""
 
         def trace(self, *args, **kwargs):
             """Return a no-op context manager."""
-            from contextlib import nullcontext
 
-            return nullcontext()
+            return _NoOpSpan()
 
     tracer = NoOpTracer()
+
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_emit(
+    emit_fn,
+    name: str,
+    value: float,
+    tags: list[str],
+) -> None:
+    try:
+        emit_fn(name, value, tags)
+    except Exception as exc:  # pragma: no cover - best-effort
+        logger.debug("Metrics emit failed for %s: %s", name, exc)
+
+
+def _determine_dataset_kind(dataset_name: str | None) -> str | None:
+    """Return a bounded dataset kind based on file extension."""
+    if not dataset_name:
+        return None
+
+    lowered = str(dataset_name).lower()
+    if lowered.endswith((".xlsx", ".xlsm")):
+        return "excel"
+    if lowered.endswith(".csv"):
+        return "csv"
+    return "unknown"
+
+
+def _build_metric_tags(
+    dataset_name: str | None,
+    outliers_method: str | None,
+    excel_used: bool | None,
+    dataset_kind: str | None = None,
+) -> list[str]:
+    env_tag = os.getenv("CLEANMYDATA_ENV") or os.getenv("ENV") or os.getenv("DD_ENV") or "dev"
+    kind = dataset_kind or _determine_dataset_kind(dataset_name)
+    tags = [
+        "service:cleanmydata",
+        f"env:{env_tag}",
+        "runtime:cloudrun",
+    ]
+    if kind:
+        tags.append(f"dataset_kind:{kind}")
+    if outliers_method:
+        tags.append(f"outliers_method:{outliers_method}")
+    if excel_used is not None:
+        tags.append(f"excel_used:{str(excel_used).lower()}")
+    return tags
+
 
 # ------------------- CLEAN DATA MASTER ------------------- #
 
@@ -33,6 +97,8 @@ def clean_data(
     verbose=False,
     log=False,
     dataset_name=None,
+    metrics_client: MetricsClient | None = None,
+    excel_used: bool | None = None,
 ):
     """
     Master cleaning pipeline: sequentially applies cleaning operations to the input DataFrame.
@@ -43,11 +109,19 @@ def clean_data(
 
     from cleanmydata.utils import write_log
 
+    metrics = metrics_client or get_metrics_client()
+
+    dataset_kind = _determine_dataset_kind(dataset_name)
+    derived_excel_used = (
+        excel_used
+        if excel_used is not None
+        else (dataset_kind == "excel" if dataset_name else None)
+    )
+    base_tags = _build_metric_tags(dataset_name, outliers, derived_excel_used, dataset_kind)
+    _safe_emit(metrics.count, "cleanmydata.requests_total", 1, base_tags)
+
     start = time.time()
     error_message = None
-
-    if df is None or df.empty:
-        return df, {}
 
     # ---------- Initialize summary ----------
     summary = {
@@ -57,6 +131,13 @@ def clean_data(
         "columns_standardized": 0,
         "text_unconverted": 0,
     }
+
+    if df is None or df.empty:
+        elapsed_ms = int((time.time() - start) * 1000)
+        status_tags = base_tags + ["status:failure"]
+        _safe_emit(metrics.count, "cleanmydata.requests_failed_total", 1, status_tags)
+        _safe_emit(metrics.histogram, "cleanmydata.duration_ms", elapsed_ms, status_tags)
+        return df, summary
 
     try:
         with tracer.trace("cleaning.clean_data", service="cleanmydata") as span:
@@ -132,12 +213,14 @@ def clean_data(
                 miss_span.set_tag("missing_after", int(after_na))
 
     except Exception as e:
-        # Capture any unexpected error
+        # Capture any unexpected error and preserve traceback
         error_message = f"{type(e).__name__}: {e}"
+        raise
 
     finally:
         # ---------- Compute duration ----------
         elapsed = time.time() - start
+        elapsed_ms = int(elapsed * 1000)
         if elapsed < 60:
             duration = f"{elapsed:.2f}s"
         elif elapsed < 3600:
@@ -150,6 +233,44 @@ def clean_data(
 
         summary.update({"rows": df.shape[0], "columns": df.shape[1], "duration": duration})
 
+        status = "failure" if error_message else "success"
+        status_tags = base_tags + [f"status:{status}"]
+        _safe_emit(metrics.histogram, "cleanmydata.duration_ms", elapsed_ms, status_tags)
+        _safe_emit(
+            metrics.gauge,
+            "cleanmydata.rows_processed",
+            summary.get("rows", 0),
+            base_tags,
+        )
+        _safe_emit(
+            metrics.gauge,
+            "cleanmydata.columns_processed",
+            summary.get("columns", 0),
+            base_tags,
+        )
+        _safe_emit(
+            metrics.gauge,
+            "cleanmydata.duplicates_removed",
+            summary.get("duplicates_removed", 0),
+            base_tags,
+        )
+        _safe_emit(
+            metrics.gauge,
+            "cleanmydata.missing_filled",
+            summary.get("missing_filled", 0),
+            base_tags,
+        )
+        _safe_emit(
+            metrics.gauge,
+            "cleanmydata.outliers_handled",
+            summary.get("outliers_handled", 0),
+            base_tags,
+        )
+        if error_message:
+            _safe_emit(metrics.count, "cleanmydata.requests_failed_total", 1, status_tags)
+        else:
+            _safe_emit(metrics.count, "cleanmydata.requests_succeeded_total", 1, status_tags)
+
         # ---------- Logging (success or failure) ----------
         if log:
             write_log(
@@ -158,10 +279,6 @@ def clean_data(
                 status="failed" if error_message else "completed",
                 error=error_message,
             )
-
-    # ---------- If failure, re-raise for CLI awareness ----------
-    if error_message:
-        raise
 
     return df, summary
 
