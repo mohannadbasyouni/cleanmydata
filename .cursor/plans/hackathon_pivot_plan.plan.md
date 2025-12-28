@@ -1,65 +1,3 @@
----
-name: Hackathon Pivot Plan
-overview: Transform CleanMyData from a local batch CLI into an AI-assisted, observable Cloud Run service with Gemini-powered data quality suggestions and end-to-end Datadog telemetry - designed for a 3-minute demo.
-todos:
-  - id: fastapi-wrapper
-    content: Create FastAPI app with /clean endpoint wrapping existing pipeline
-    status: completed
-  - id: dockerfile
-    content: Create Dockerfile and cloudbuild.yaml for Cloud Run
-    status: completed
-  - id: datadog-tracing
-    content: Add ddtrace instrumentation to pipeline steps in clean.py
-    status: completed
-    dependencies:
-      - fastapi-wrapper
-  - id: custom-metrics
-    content: Emit custom metrics (rows processed, duplicates, outliers, etc.)
-    status: pending
-    dependencies:
-      - datadog-tracing
-  - id: structured-logging
-    content: Refactor logging to structured JSON with Datadog correlation
-    status: pending
-    dependencies:
-      - datadog-tracing
-  - id: gemini-client
-    content: Create Vertex AI Gemini client for data quality analysis
-    status: pending
-  - id: gemini-prompts
-    content: Build prompt templates for schema/quality suggestions
-    status: pending
-    dependencies:
-      - gemini-client
-  - id: ai-integration
-    content: Integrate Gemini analysis into pipeline response
-    status: pending
-    dependencies:
-      - gemini-prompts
-      - datadog-tracing
-  - id: gcs-storage
-    content: Add GCS helpers for file upload/download
-    status: pending
-  - id: dashboard
-    content: Create Datadog dashboard with pipeline health and AI metrics
-    status: pending
-    dependencies:
-      - custom-metrics
-      - ai-integration
-  - id: monitors
-    content: Set up Datadog monitors for error rate and latency
-    status: pending
-    dependencies:
-      - dashboard
-  - id: cloud-run-deploy
-    content: Deploy to Cloud Run with secrets and test end-to-end
-    status: pending
-    dependencies:
-      - dockerfile
-      - gcs-storage
-      - ai-integration
----
-
 # CleanMyData Hackathon Pivot: AI-Assisted Data Cleaning with Full Observability
 
 ## Target Architecture
@@ -285,11 +223,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 
 1. **0:00-0:30**: Upload dirty CSV via API, show trace starting in Datadog
 2. **0:30-1:30**: Walk through flame graph as pipeline processes - highlight each step's metrics
-3. **1:30-2:15**: Show AI suggestions in response + Gemini span metrics
-4. **2:15-2:45**: Dashboard view - quality metrics, AI latency, error rate
-5. **2:45-3:00**: Trigger alert threshold, show monitor firing
-
-### Differentiation
-
-- Not just "we added Datadog" - observability is **integral to understanding AI behavior**
-- Gemini provides value without being a black box

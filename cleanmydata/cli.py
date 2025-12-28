@@ -10,6 +10,7 @@ from rich.table import Table
 
 from cleanmydata.clean import clean_data
 from cleanmydata.exceptions import DataLoadError
+from cleanmydata.logging import configure_logging_json
 from cleanmydata.utils.io import read_data
 
 app = typer.Typer(
@@ -29,10 +30,13 @@ def clean(
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed cleaning logs"),
     log: bool = typer.Option(
-        False, "--log", help="Save key cleaning details and summary to logs/cleaning_report.txt"
+        False,
+        "--log",
+        help="Deprecated: no-op (structured JSON logs are always emitted to stdout/stderr)",
     ),
 ):
     """Clean a messy dataset."""
+    configure_logging_json()
     try:
         df = read_data(Path(path))
     except (FileNotFoundError, DataLoadError) as e:

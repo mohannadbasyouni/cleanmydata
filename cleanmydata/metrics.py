@@ -8,14 +8,15 @@ swallows errors to keep the cleaning pipeline resilient.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import socket
 import time
 from collections.abc import Iterable, Sequence
 from urllib import request
 
-logger = logging.getLogger(__name__)
+from cleanmydata.logging import get_logger
+
+logger = get_logger(__name__)
 
 TagList = Sequence[str] | None
 
@@ -61,7 +62,7 @@ class DogStatsdMetricsClient(MetricsClient):
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.sendto(message.encode("utf-8"), self.address)
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug("DogStatsD emit failed: %s", exc)
+            logger.debug("dogstatsd_emit_failed", error=str(exc))
 
     def count(self, name: str, value: float = 1, tags: TagList = None) -> None:
         self._send(name, value, "c", tags)
@@ -113,7 +114,7 @@ class HttpMetricsClient(MetricsClient):
             with request.urlopen(req, timeout=self.timeout):
                 pass
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug("HTTP metrics emit failed: %s", exc)
+            logger.debug("http_metrics_emit_failed", error=str(exc))
 
     def count(self, name: str, value: float = 1, tags: TagList = None) -> None:
         self._send(name, value, "count", tags)

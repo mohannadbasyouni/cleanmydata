@@ -59,7 +59,7 @@ Tags must be **low-cardinality**.
 - runtime: cloudrun
 
 ### Optional tags (ONLY if naturally available)
-- dataset_kind instead of dataset_name to keep tags low-cardinality
+- We use dataset_kind (csv/excel/unknown) instead of dataset_name to keep tags low-cardinality.
 - outliers_method (cap | remove | none)
 - excel_used (true | false)
 - status (success | failure)

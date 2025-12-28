@@ -1,11 +1,12 @@
-import logging
 import os
 import re
+import time
 import unicodedata
 
 import numpy as np
 import pandas as pd
 
+from cleanmydata.logging import get_logger
 from cleanmydata.metrics import MetricsClient, get_metrics_client
 
 try:
@@ -33,7 +34,7 @@ except ImportError:
     tracer = NoOpTracer()
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _safe_emit(
@@ -45,7 +46,7 @@ def _safe_emit(
     try:
         emit_fn(name, value, tags)
     except Exception as exc:  # pragma: no cover - best-effort
-        logger.debug("Metrics emit failed for %s: %s", name, exc)
+        logger.debug("metrics_emit_failed", metric=name, error=str(exc))
 
 
 def _determine_dataset_kind(dataset_name: str | None) -> str | None:
@@ -102,14 +103,12 @@ def clean_data(
 ):
     """
     Master cleaning pipeline: sequentially applies cleaning operations to the input DataFrame.
-    Logs both successful and failed runs if 'log=True'.
+    Structured logs are always emitted via structlog; the 'log' flag is kept for
+    compatibility and no longer writes log files.
     """
 
-    import time
-
-    from cleanmydata.utils import write_log
-
     metrics = metrics_client or get_metrics_client()
+    _ = log  # backward compatibility (no-op)
 
     dataset_kind = _determine_dataset_kind(dataset_name)
     derived_excel_used = (
@@ -120,8 +119,19 @@ def clean_data(
     base_tags = _build_metric_tags(dataset_name, outliers, derived_excel_used, dataset_kind)
     _safe_emit(metrics.count, "cleanmydata.requests_total", 1, base_tags)
 
-    start = time.time()
+    start_wall = time.time()
+    start_perf = time.perf_counter()
     error_message = None
+
+    def _log_step(
+        step: str, *, rows_before=None, rows_after=None, duration_ms=None, **fields
+    ) -> None:
+        payload = {"step": step, "duration_ms": duration_ms, **fields}
+        if rows_before is not None:
+            payload["rows_before"] = rows_before
+        if rows_after is not None:
+            payload["rows_after"] = rows_after
+        logger.info("clean_step_completed", **payload)
 
     # ---------- Initialize summary ----------
     summary = {
@@ -132,40 +142,91 @@ def clean_data(
         "text_unconverted": 0,
     }
 
+    logger.info(
+        "clean_request_started",
+        dataset_name=dataset_name,
+        rows=0 if df is None else len(df),
+        columns=0 if df is None else len(df.columns),
+        outliers_method=outliers,
+        normalize_cols=normalize_cols,
+        clean_text=clean_text,
+        auto_outlier_detect=auto_outlier_detect,
+        dataset_kind=dataset_kind,
+        excel_used=derived_excel_used,
+    )
+
     if df is None or df.empty:
-        elapsed_ms = int((time.time() - start) * 1000)
+        elapsed_ms = int((time.perf_counter() - start_perf) * 1000)
         status_tags = base_tags + ["status:failure"]
         _safe_emit(metrics.count, "cleanmydata.requests_failed_total", 1, status_tags)
         _safe_emit(metrics.histogram, "cleanmydata.duration_ms", elapsed_ms, status_tags)
+        logger.error(
+            "clean_request_completed",
+            status="failure",
+            rows=0,
+            columns=0,
+            duration_ms=elapsed_ms,
+            dataset_name=dataset_name,
+            reason="empty_dataframe",
+        )
         return df, summary
 
     try:
         with tracer.trace("cleaning.clean_data", service="cleanmydata") as span:
             span.set_tag("rows", len(df))
             span.set_tag("columns", len(df.columns))
-            if dataset_name:
-                span.set_tag("dataset_name", dataset_name)
+            if dataset_kind:
+                span.set_tag("dataset_kind", dataset_kind)
 
             # ---------- 1. Remove duplicates ----------
             with tracer.trace("cleaning.remove_duplicates", service="cleanmydata") as dup_span:
                 before = len(df)
                 dup_span.set_tag("rows_before", before)
+                step_start = time.perf_counter()
                 df = remove_duplicates(df, verbose=verbose)
                 after = len(df)
+                duration_ms = int((time.perf_counter() - step_start) * 1000)
                 summary["duplicates_removed"] = before - after
                 dup_span.set_tag("rows_after", after)
                 dup_span.set_tag("duplicates_removed", before - after)
+                _log_step(
+                    "remove_duplicates",
+                    rows_before=before,
+                    rows_after=after,
+                    duration_ms=duration_ms,
+                    duplicates_removed=before - after,
+                )
 
             # ---------- 2. Normalize column names ----------
             if normalize_cols:
                 with tracer.trace("cleaning.normalize_columns", service="cleanmydata"):
+                    step_start = time.perf_counter()
+                    columns_before = len(df.columns)
                     df = normalize_column_names(df, verbose=verbose)
+                    duration_ms = int((time.perf_counter() - step_start) * 1000)
+                    _log_step(
+                        "normalize_columns",
+                        rows_before=len(df),
+                        rows_after=len(df),
+                        duration_ms=duration_ms,
+                        columns_before=columns_before,
+                        columns_after=len(df.columns),
+                    )
+            else:
+                _log_step(
+                    "normalize_columns",
+                    rows_before=len(df),
+                    rows_after=len(df),
+                    duration_ms=0,
+                    status="skipped",
+                )
 
             # ---------- 3. Clean text & categorical values ----------
             if clean_text:
                 with tracer.trace("cleaning.clean_text", service="cleanmydata") as text_span:
                     before_text_cols = len(df.select_dtypes(include=["object", "string"]).columns)
                     text_span.set_tag("text_columns_before", before_text_cols)
+                    step_start = time.perf_counter()
                     df = clean_text_columns(
                         df,
                         lowercase=True,
@@ -173,9 +234,26 @@ def clean_data(
                         categorical_mapping=categorical_mapping,
                     )
                     summary["text_unconverted"] = before_text_cols  # tracked only
+                    duration_ms = int((time.perf_counter() - step_start) * 1000)
+                    _log_step(
+                        "clean_text",
+                        rows_before=len(df),
+                        rows_after=len(df),
+                        duration_ms=duration_ms,
+                        text_columns_before=before_text_cols,
+                    )
+            else:
+                _log_step(
+                    "clean_text",
+                    rows_before=len(df),
+                    rows_after=len(df),
+                    duration_ms=0,
+                    status="skipped",
+                )
 
             # ---------- 4. Standardize formats ----------
             with tracer.trace("cleaning.standardize_formats", service="cleanmydata") as std_span:
+                step_start = time.perf_counter()
                 df = standardize_formats(df, verbose=verbose)
                 converted_cols = [
                     c
@@ -185,6 +263,14 @@ def clean_data(
                 ]
                 summary["columns_standardized"] = len(converted_cols)
                 std_span.set_tag("columns_standardized", len(converted_cols))
+                duration_ms = int((time.perf_counter() - step_start) * 1000)
+                _log_step(
+                    "standardize_formats",
+                    rows_before=len(df),
+                    rows_after=len(df),
+                    duration_ms=duration_ms,
+                    columns_standardized=len(converted_cols),
+                )
 
             # ---------- 5. Handle outliers ----------
             if outliers:
@@ -192,6 +278,7 @@ def clean_data(
                     out_span.set_tag("method", outliers)
                     out_span.set_tag("auto_detect", auto_outlier_detect)
                     before_outlier_rows = len(df)
+                    step_start = time.perf_counter()
                     df = handle_outliers(
                         df, method=outliers, auto_detect=auto_outlier_detect, verbose=verbose
                     )
@@ -201,25 +288,61 @@ def clean_data(
                     )
                     out_span.set_tag("rows_before", before_outlier_rows)
                     out_span.set_tag("rows_after", after_outlier_rows)
+                    duration_ms = int((time.perf_counter() - step_start) * 1000)
+                    _log_step(
+                        "handle_outliers",
+                        rows_before=before_outlier_rows,
+                        rows_after=after_outlier_rows,
+                        duration_ms=duration_ms,
+                        outliers_handled=summary["outliers_handled"],
+                        method=outliers,
+                    )
+            else:
+                _log_step(
+                    "handle_outliers",
+                    rows_before=len(df),
+                    rows_after=len(df),
+                    duration_ms=0,
+                    status="skipped",
+                    method=outliers,
+                )
 
             # ---------- 6. Fill missing values ----------
             with tracer.trace("cleaning.fill_missing", service="cleanmydata") as miss_span:
                 before_na = df.isna().sum().sum()
                 miss_span.set_tag("missing_before", int(before_na))
+                step_start = time.perf_counter()
                 df = fill_missing_values(df, verbose=verbose)
                 after_na = df.isna().sum().sum()
                 summary["missing_filled"] = int(before_na - after_na)
                 miss_span.set_tag("missing_filled", int(before_na - after_na))
                 miss_span.set_tag("missing_after", int(after_na))
+                duration_ms = int((time.perf_counter() - step_start) * 1000)
+                _log_step(
+                    "fill_missing",
+                    rows_before=len(df),
+                    rows_after=len(df),
+                    duration_ms=duration_ms,
+                    missing_before=int(before_na),
+                    missing_after=int(after_na),
+                    missing_filled=int(before_na - after_na),
+                )
 
     except Exception as e:
         # Capture any unexpected error and preserve traceback
         error_message = f"{type(e).__name__}: {e}"
+        logger.error(
+            "clean_request_failed",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            dataset_name=dataset_name,
+            exc_info=True,
+        )
         raise
 
     finally:
         # ---------- Compute duration ----------
-        elapsed = time.time() - start
+        elapsed = time.time() - start_wall
         elapsed_ms = int(elapsed * 1000)
         if elapsed < 60:
             duration = f"{elapsed:.2f}s"
@@ -271,14 +394,15 @@ def clean_data(
         else:
             _safe_emit(metrics.count, "cleanmydata.requests_succeeded_total", 1, status_tags)
 
-        # ---------- Logging (success or failure) ----------
-        if log:
-            write_log(
-                summary,
-                dataset_name=dataset_name or "Unknown",
-                status="failed" if error_message else "completed",
-                error=error_message,
-            )
+        log_fn = logger.error if error_message else logger.info
+        log_fn(
+            "clean_request_completed",
+            status=status,
+            rows=summary.get("rows", 0),
+            columns=summary.get("columns", 0),
+            duration_ms=elapsed_ms,
+            dataset_name=dataset_name,
+        )
 
     return df, summary
 
