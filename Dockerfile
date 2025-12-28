@@ -4,20 +4,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8080
 
-# Install system dependencies required by pandas and FastAPI.
+# System deps (pandas wheels sometimes need gcc)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libpq-dev \
+    && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy metadata first for dependency caching, then source for installation.
+# Copy metadata first for better layer caching
 COPY pyproject.toml README.md ./
 COPY cleanmydata ./cleanmydata
 
-# Install Python dependencies after source is available.
+# Install Python deps WITH GCS enabled
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir .[api]
+    && pip install --no-cache-dir ".[api,gcs]"
 
 EXPOSE 8080
 
