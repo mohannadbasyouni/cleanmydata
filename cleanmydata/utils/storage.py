@@ -212,11 +212,11 @@ class GCSStorageClient(StorageClient):
 
 def get_storage_client() -> StorageClient:
     """Return a storage client based on environment configuration."""
-
     backend = (os.getenv("CLEANMYDATA_STORAGE_BACKEND") or "local").lower()
     bucket = os.getenv("CLEANMYDATA_GCS_BUCKET")
     prefix = os.getenv("CLEANMYDATA_GCS_PREFIX", "cleanmydata/")
     ttl_env = os.getenv("CLEANMYDATA_SIGNED_URL_TTL_SECONDS")
+
     try:
         ttl = int(ttl_env) if ttl_env else 3600
     except ValueError:
@@ -226,26 +226,29 @@ def get_storage_client() -> StorageClient:
         return NoOpStorageClient()
 
     if not bucket:
-        logger.info(
-            "storage_backend_not_configured",
-            backend=backend,
-            reason="missing_bucket",
-        )
+        logger.info("storage_backend_not_configured", backend=backend, reason="missing_bucket")
         return NoOpStorageClient()
 
+    # ✅ Explicit dependency check (only about google-cloud-storage)
     try:
-        return GCSStorageClient(bucket_name=bucket, prefix=prefix, signed_url_ttl=ttl)
-    except ImportError:
+        from google.cloud import storage as _storage  # noqa: F401
+    except (ImportError, ModuleNotFoundError) as exc:
         logger.debug(
             "storage_backend_unavailable",
             backend=backend,
             reason="missing_google_cloud_storage_dependency",
+            error=str(exc),
         )
         return NoOpStorageClient()
+
+    # ✅ Now init; any failure here is NOT "missing dependency"
+    try:
+        return GCSStorageClient(bucket_name=bucket, prefix=prefix, signed_url_ttl=ttl)
     except Exception as exc:
         logger.warning(
             "storage_backend_init_failed",
             backend=backend,
             error=str(exc),
+            exc_info=True,  # <— crucial so you see the real reason in logs
         )
         return NoOpStorageClient()
