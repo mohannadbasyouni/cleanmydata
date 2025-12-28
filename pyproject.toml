@@ -39,6 +39,11 @@ api = [
   "ddtrace>=2.0.0",
 ]
 
+# AI (Gemini) dependencies
+ai = [
+  "google-cloud-aiplatform>=1.71.1",
+]
+
 # CLI UX only.
 cli = [
   "rich>=14.0.0",
@@ -76,6 +81,7 @@ all = [
   "typer>=0.9.0",
   "openpyxl>=3.1.0",
   "pyarrow>=10.0.0",
+  "google-cloud-aiplatform>=1.71.1",
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
   "pre-commit>=3.0.0",

@@ -15,9 +15,11 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from cleanmydata.clean import clean_data
+from cleanmydata.ai.gemini import GeminiClient
+from cleanmydata.clean import _determine_dataset_kind, clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DataLoadError
+from cleanmydata.models import Suggestion
 
 # -----------------------------------------------------------------------------
 # Datadog APM Configuration
@@ -96,6 +98,16 @@ class CleaningSummary(BaseModel):
     duration: str = ""
 
 
+class SuggestionModel(BaseModel):
+    """Structured AI suggestion."""
+
+    category: str
+    severity: str
+    message: str
+    column: str | None = None
+    evidence: dict | None = None
+
+
 class JobStatusResponse(BaseModel):
     """Response for job status queries."""
 
@@ -106,7 +118,7 @@ class JobStatusResponse(BaseModel):
     original_filename: str | None = None
     summary: CleaningSummary | None = None
     download_url: str | None = None
-    ai_suggestions: list[str] = Field(default_factory=list)
+    ai_suggestions: list[SuggestionModel] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -229,6 +241,7 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
             )
 
             # Run the cleaning pipeline
+            dataset_name = job_store.get_job(job_id)["original_filename"]
             cleaned_df, summary = clean_data(
                 df,
                 outliers=config.outliers,
@@ -237,6 +250,7 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 auto_outlier_detect=config.auto_outlier_detect,
                 verbose=config.verbose,
                 log=False,
+                dataset_name=dataset_name,
             )
 
             span.set_tag("rows_after", len(cleaned_df))
@@ -251,6 +265,12 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 cleaned_df.to_csv(output_path, index=False)
                 save_span.set_tag("output_path", str(output_path))
 
+            dataset_kind = _determine_dataset_kind(dataset_name)
+            gemini = GeminiClient()
+            ai_suggestions: list[Suggestion] = gemini.analyze_data_quality(
+                cleaned_df, summary, dataset_kind=dataset_kind
+            )
+
             # Update job with results
             job_store.update_job(
                 job_id,
@@ -258,7 +278,7 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 completed_at=datetime.utcnow().isoformat() + "Z",
                 summary=CleaningSummary(**summary),
                 output_path=str(output_path),
-                ai_suggestions=[],  # Placeholder for Phase 3 Gemini integration
+                ai_suggestions=[s.to_dict() for s in ai_suggestions],
             )
 
         except Exception as e:

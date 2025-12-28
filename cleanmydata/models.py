@@ -86,3 +86,28 @@ class CleaningResult:
             "errors": self.errors,
             "warnings": self.warnings,
         }
+
+
+@dataclass
+class Suggestion:
+    """
+    Structured AI suggestion for data quality improvements.
+
+    Advisory-only: never used to mutate data automatically.
+    """
+
+    category: str
+    severity: str
+    message: str
+    column: str | None = None
+    evidence: dict | None = None
+
+    def to_dict(self) -> dict:
+        """Convert suggestion to a serializable dict."""
+        return {
+            "category": self.category,
+            "severity": self.severity,
+            "message": self.message,
+            "column": self.column,
+            "evidence": self.evidence,
+        }

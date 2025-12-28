@@ -59,8 +59,6 @@ GET /clean/{job_id}
     - Returns: { "status": "completed", "download_url": "...", "summary": {...}, "ai_suggestions": [...] }
 ```
 
-
-
 ### Phase 2: Datadog Integration (Day 1-2)
 
 Instrument before adding AI to establish baseline telemetry.| Action | Details ||--------|---------|| **Add** | `ddtrace` for automatic APM instrumentation || **Refactor** | [`cleanmydata/utils/io.py`](cleanmydata/utils/io.py) to emit structured JSON logs via `structlog` + Datadog formatter || **Add** | Custom metrics emission in [`cleanmydata/clean.py`](cleanmydata/clean.py) pipeline steps |
@@ -93,8 +91,6 @@ cleanmydata.api.clean (parent span)
   ├── cleanmydata.ai.gemini_analyze (AI span)
   └── cleanmydata.io.write_file
 ```
-
-
 
 ### Custom Metrics (Minimum Viable)
 
@@ -188,8 +184,6 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
     return suggestions
 ```
 
-
-
 ### Why This Positioning Works
 
 - AI is **additive**, not a black box replacing your logic
@@ -216,10 +210,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 ## 7. Why This Scores Well with Judges
 
 ### Datadog Challenge Alignment
-
-| Criterion | How You Deliver ||-----------|-----------------|| Meaningful observability | Every pipeline step is traced with business metrics, not just infra metrics || Dashboard tells a story | Data quality improvement visible in real-time || AI + Observability synergy | Gemini suggestions are traced and measured - you can show AI ROI || Production-ready patterns | Error handling, structured logging, alerting |
-
-### Demo Strategy (3 Minutes)
-
-1. **0:00-0:30**: Upload dirty CSV via API, show trace starting in Datadog
-2. **0:30-1:30**: Walk through flame graph as pipeline processes - highlight each step's metrics
