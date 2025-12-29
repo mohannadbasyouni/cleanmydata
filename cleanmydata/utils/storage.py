@@ -197,30 +197,43 @@ class GCSStorageClient(StorageClient):
         try:
             blob = self._bucket.blob(name)
 
-            try:
-                import google.auth  # type: ignore
-                from google.auth import impersonated_credentials  # type: ignore
+            # Prefer IAM SignBlob signing when running on Cloud Run / GCE (no local key file).
+            signer_email = os.getenv("CLEANMYDATA_GCS_SIGNER_EMAIL")
+            if signer_email:
+                try:
+                    import google.auth  # type: ignore
+                    from google.auth.iam import Signer  # type: ignore
+                    from google.auth.transport.requests import Request  # type: ignore
 
-                signer_email = os.getenv("CLEANMYDATA_GCS_SIGNER_EMAIL")
-                if signer_email:
-                    source_credentials, _ = google.auth.default()
+                    credentials, _ = google.auth.default()
+                    signer = Signer(Request(), credentials, signer_email)
 
-                    signing_credentials = impersonated_credentials.Credentials(
-                        source_credentials=source_credentials,
-                        target_principal=signer_email,
-                        target_scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
-                        lifetime=min(int(ttl), 3600),
+                    logger.info(
+                        "storage_signed_url_using_iam_signer",
+                        backend=self.backend,
+                        service_account_email=signer_email,
+                        object_name=name,
+                        ttl=ttl,
                     )
 
                     return blob.generate_signed_url(
                         expiration=timedelta(seconds=ttl),
                         method="GET",
                         version="v4",
-                        credentials=signing_credentials,
+                        signer=signer,
+                        service_account_email=signer_email,
                     )
-            except Exception:
-                pass
+                except Exception as exc:
+                    logger.warning(
+                        "storage_signed_url_iam_signer_failed",
+                        backend=self.backend,
+                        service_account_email=signer_email,
+                        object_name=name,
+                        error=str(exc),
+                        exc_info=True,
+                    )
 
+            # Fallback: works only when credentials include a private key (local/dev with key file).
             return blob.generate_signed_url(
                 expiration=timedelta(seconds=ttl),
                 method="GET",
