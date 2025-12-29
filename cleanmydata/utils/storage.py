@@ -195,10 +195,31 @@ class GCSStorageClient(StorageClient):
         ttl = expires_seconds if expires_seconds is not None else self.signed_url_ttl
         try:
             blob = self._bucket.blob(name)
+            # Prefer IAM SignBlob signing when running on Cloud Run / GCE (no local key file).
+            try:
+                import google.auth  # type: ignore
+                from google.auth import iam  # type: ignore
+                from google.auth.transport.requests import Request  # type: ignore
+
+                credentials, _ = google.auth.default()
+                signer_email = getattr(credentials, "service_account_email", None) or os.getenv(
+                    "CLEANMYDATA_GCS_SIGNER_EMAIL"
+                )
+                if signer_email:
+                    signer = iam.Signer(Request(), credentials, signer_email)
+                    return blob.generate_signed_url(
+                        expiration=timedelta(seconds=ttl),
+                        method="GET",
+                        version="v4",
+                        signer=signer,
+                        service_account_email=signer_email,
+                    )
+            except Exception:
+                # Fall back to default signing behavior (e.g., local dev with service account key file).
+                pass
+
             return blob.generate_signed_url(
-                expiration=timedelta(seconds=ttl),
-                method="GET",
-                version="v4",
+                expiration=timedelta(seconds=ttl), method="GET", version="v4"
             )
         except Exception as exc:
             logger.warning(
@@ -206,6 +227,7 @@ class GCSStorageClient(StorageClient):
                 backend=self.backend,
                 object_name=name,
                 error=str(exc),
+                exc_info=True,
             )
             return ""
 

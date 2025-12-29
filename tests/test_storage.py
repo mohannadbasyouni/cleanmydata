@@ -41,6 +41,7 @@ def _install_fake_gcs(monkeypatch: pytest.MonkeyPatch):
             expiration: timedelta,
             method: str = "GET",  # noqa: ARG002
             version: str | None = None,  # noqa: ARG002
+            **kwargs,  # noqa: ARG002
         ) -> str:
             self.last_expiration = expiration
             return f"https://signed/{self.name}"
