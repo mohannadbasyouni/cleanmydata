@@ -63,3 +63,59 @@ Logs automatically include trace correlation fields when a trace is active:
 - `dd.service`: Service name
 
 This allows seamless correlation between logs and traces in the Datadog UI.
+
+## Cloud Run Deployment
+
+The CleanMyData API uses IAM-only signing for GCS signed URLs, which is the recommended production approach for Cloud Run deployments. This eliminates the need for service account JSON key files.
+
+### GCS Storage Configuration
+
+**Required Environment Variables:**
+```bash
+export CLEANMYDATA_STORAGE_BACKEND=gcs
+export CLEANMYDATA_GCS_BUCKET=your-bucket-name
+export CLEANMYDATA_GCS_SIGNER_EMAIL=your-service-account@project.iam.gserviceaccount.com  # Optional: auto-detected from runtime identity
+export CLEANMYDATA_SIGNED_URL_TTL_SECONDS=3600  # Optional: default is 3600 seconds
+```
+
+**IAM Requirements:**
+
+1. **Service Account**: Configure Cloud Run to run as a dedicated service account:
+   ```bash
+   gcloud run services update cleanmydata \
+     --service-account=cleanmydata-sa@PROJECT_ID.iam.gserviceaccount.com \
+     --region=us-central1
+   ```
+
+2. **Required IAM Role**: The service account needs the `roles/iam.serviceAccountTokenCreator` role to sign URLs:
+   ```bash
+   gcloud projects add-iam-policy-binding PROJECT_ID \
+     --member="serviceAccount:cleanmydata-sa@PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountTokenCreator"
+   ```
+
+3. **Required API**: Enable the IAM Credentials API:
+   ```bash
+   gcloud services enable iamcredentials.googleapis.com
+   ```
+
+4. **GCS Permissions**: The service account needs appropriate GCS bucket permissions:
+   ```bash
+   gsutil iam ch serviceAccount:cleanmydata-sa@PROJECT_ID.iam.gserviceaccount.com:objectCreator,objectViewer gs://your-bucket-name
+   ```
+
+**How It Works:**
+
+- The signing process uses the IAM Credentials API (`SignBlob`) instead of private keys
+- The service account email is automatically detected from the runtime identity (Cloud Run metadata server)
+- No JSON key files or `GOOGLE_APPLICATION_CREDENTIALS` environment variable required
+- Local development can use Application Default Credentials (`gcloud auth application-default login`) without key files
+
+**Error Handling:**
+
+If signing fails, you'll see clear error messages indicating:
+- Missing `roles/iam.serviceAccountTokenCreator` role
+- IAM Credentials API not enabled
+- Service account email not found
+
+Check application logs for detailed error information.

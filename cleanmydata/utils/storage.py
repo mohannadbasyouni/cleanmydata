@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from cleanmydata.exceptions import StorageSigningError
 from cleanmydata.logging import get_logger
 
 logger = get_logger(__name__)
@@ -191,64 +192,122 @@ class GCSStorageClient(StorageClient):
         return blob.download_as_bytes()
 
     def generate_download_url(self, object_name: str, *, expires_seconds: int | None = None) -> str:
+        """
+        Generate a signed download URL using IAM Credentials API (SignBlob).
+
+        This method uses IAM-only signing and does not require private key material.
+        It works on Cloud Run/GCE using the metadata server, or locally with ADC
+        (Application Default Credentials via `gcloud auth application-default login`).
+
+        Raises:
+            StorageSigningError: If signing fails due to missing permissions or configuration.
+        """
         name = self._full_object_name(object_name)
         ttl = expires_seconds if expires_seconds is not None else self.signed_url_ttl
 
         try:
-            blob = self._bucket.blob(name)
+            import google.auth  # type: ignore
+            from google.auth.iam import Signer  # type: ignore
+            from google.auth.transport.requests import Request  # type: ignore
 
-            # Prefer IAM SignBlob signing when running on Cloud Run / GCE (no local key file).
+            # Get service account email from env var or runtime credentials
             signer_email = os.getenv("CLEANMYDATA_GCS_SIGNER_EMAIL")
-            if signer_email:
+            if not signer_email:
+                # Try to get it from the default credentials (works on Cloud Run/GCE)
                 try:
-                    import google.auth  # type: ignore
-                    from google.auth.iam import Signer  # type: ignore
-                    from google.auth.transport.requests import Request  # type: ignore
-
                     credentials, _ = google.auth.default()
-                    signer = Signer(Request(), credentials, signer_email)
-
-                    logger.info(
-                        "storage_signed_url_using_iam_signer",
+                    # For service account credentials, the service_account_email attribute exists
+                    if hasattr(credentials, "service_account_email"):
+                        signer_email = credentials.service_account_email
+                    elif hasattr(credentials, "signer_email"):
+                        signer_email = credentials.signer_email
+                except Exception as cred_exc:
+                    logger.debug(
+                        "storage_signed_url_no_service_account_email",
                         backend=self.backend,
-                        service_account_email=signer_email,
-                        object_name=name,
-                        ttl=ttl,
+                        error=str(cred_exc),
                     )
 
-                    return blob.generate_signed_url(
-                        expiration=timedelta(seconds=ttl),
-                        method="GET",
-                        version="v4",
-                        signer=signer,
-                        service_account_email=signer_email,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "storage_signed_url_iam_signer_failed",
-                        backend=self.backend,
-                        service_account_email=signer_email,
-                        object_name=name,
-                        error=str(exc),
-                        exc_info=True,
-                    )
+            if not signer_email:
+                error_msg = (
+                    "Cannot generate signed URL: service account email not found. "
+                    "Set CLEANMYDATA_GCS_SIGNER_EMAIL environment variable, or ensure "
+                    "the runtime is using service account credentials (Cloud Run/GCE)."
+                )
+                logger.error(
+                    "storage_signed_url_missing_service_account_email",
+                    backend=self.backend,
+                    object_name=name,
+                )
+                raise StorageSigningError(error_msg)
 
-            # Fallback: works only when credentials include a private key (local/dev with key file).
-            return blob.generate_signed_url(
+            # Use IAM Credentials API (SignBlob) - no private key required
+            credentials, _ = google.auth.default()
+            signer = Signer(Request(), credentials, signer_email)
+
+            logger.info(
+                "storage_signed_url_using_iam_signer",
+                backend=self.backend,
+                service_account_email=signer_email,
+                object_name=name,
+                ttl=ttl,
+            )
+
+            blob = self._bucket.blob(name)
+            signed_url = blob.generate_signed_url(
                 expiration=timedelta(seconds=ttl),
                 method="GET",
                 version="v4",
+                signer=signer,
+                service_account_email=signer_email,
             )
 
+            logger.info(
+                "storage_signed_url_success",
+                backend=self.backend,
+                service_account_email=signer_email,
+                object_name=name,
+                ttl=ttl,
+            )
+
+            return signed_url
+
+        except StorageSigningError:
+            raise
         except Exception as exc:
-            logger.warning(
+            error_str = str(exc)
+            error_lower = error_str.lower()
+
+            # Detect common IAM permission errors
+            if "permission" in error_lower or "403" in error_str:
+                error_msg = (
+                    f"Failed to generate signed URL due to IAM permissions: {error_str}. "
+                    "Ensure the service account has the 'roles/iam.serviceAccountTokenCreator' "
+                    "role and that the IAM Credentials API (iamcredentials.googleapis.com) is enabled."
+                )
+            elif "not found" in error_lower or "404" in error_str:
+                error_msg = (
+                    f"Service account not found or IAM Credentials API not enabled: {error_str}. "
+                    "Verify CLEANMYDATA_GCS_SIGNER_EMAIL points to a valid service account and "
+                    "that iamcredentials.googleapis.com is enabled in your project."
+                )
+            else:
+                error_msg = (
+                    f"Failed to generate signed URL: {error_str}. "
+                    "Ensure IAM Credentials API is enabled and the service account has "
+                    "the 'roles/iam.serviceAccountTokenCreator' role."
+                )
+
+            logger.error(
                 "storage_signed_url_failed",
                 backend=self.backend,
+                service_account_email=signer_email if "signer_email" in locals() else None,
                 object_name=name,
-                error=str(exc),
+                error=error_str,
                 exc_info=True,
             )
-            return ""
+
+            raise StorageSigningError(error_msg) from exc
 
 
 def get_storage_client() -> StorageClient:

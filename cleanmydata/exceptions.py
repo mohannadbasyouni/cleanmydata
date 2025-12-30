@@ -29,3 +29,9 @@ class ValidationError(CleanMyDataError):
     """Raised when configuration validation fails."""
 
     pass
+
+
+class StorageSigningError(CleanMyDataError):
+    """Raised when GCS signed URL generation fails due to IAM/permission issues."""
+
+    pass
