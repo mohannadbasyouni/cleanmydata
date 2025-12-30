@@ -11,6 +11,7 @@ import pandas as pd
 
 from cleanmydata.ai.prompts import build_quality_prompt
 from cleanmydata.logging import get_logger
+from cleanmydata.metrics import default_metric_tags, get_metrics_client
 from cleanmydata.models import Suggestion
 
 try:  # pragma: no cover - optional dependency
@@ -23,6 +24,14 @@ logger = get_logger(__name__)
 
 def _env_truthy(value: str | None) -> bool:
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _safe_emit_metric(emit_fn, name: str, value: float, tags: list[str] | None = None) -> None:
+    """Safely emit a metric, swallowing any errors."""
+    try:
+        emit_fn(name, value, tags)
+    except Exception as exc:  # pragma: no cover - best-effort
+        logger.debug("metrics_emit_failed", metric=name, error=str(exc))
 
 
 class GeminiClient:
@@ -45,13 +54,64 @@ class GeminiClient:
         """
 
         start = time.perf_counter()
+        suggestions: list[Suggestion] = []
 
         if not self.enabled:
             logger.debug("gemini_disabled")
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            # Emit metrics even when disabled
+            metrics = get_metrics_client()
+            base_tags = default_metric_tags()
+            if dataset_kind:
+                base_tags.append(f"dataset_kind:{dataset_kind}")
+            base_tags.append(f"model:{self.model}")
+            _safe_emit_metric(
+                metrics.histogram,
+                "cleanmydata.gemini.latency_ms",
+                float(duration_ms),
+                base_tags,
+            )
+            _safe_emit_metric(
+                metrics.count,
+                "cleanmydata.gemini.calls",
+                1.0,
+                base_tags + ["status:skipped"],
+            )
+            _safe_emit_metric(
+                metrics.count,
+                "cleanmydata.gemini.suggestions_count",
+                0.0,
+                base_tags + ["status:skipped"],
+            )
             return []
 
         if not self.project:
             logger.debug("gemini_missing_project", enabled=self.enabled)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            # Emit metrics even when project missing
+            metrics = get_metrics_client()
+            base_tags = default_metric_tags()
+            if dataset_kind:
+                base_tags.append(f"dataset_kind:{dataset_kind}")
+            base_tags.append(f"model:{self.model}")
+            _safe_emit_metric(
+                metrics.histogram,
+                "cleanmydata.gemini.latency_ms",
+                float(duration_ms),
+                base_tags,
+            )
+            _safe_emit_metric(
+                metrics.count,
+                "cleanmydata.gemini.calls",
+                1.0,
+                base_tags + ["status:skipped"],
+            )
+            _safe_emit_metric(
+                metrics.count,
+                "cleanmydata.gemini.suggestions_count",
+                0.0,
+                base_tags + ["status:skipped"],
+            )
             return []
 
         span_ctx = (
@@ -74,12 +134,13 @@ class GeminiClient:
                 columns=summary.get("columns", len(df.columns)),
                 model=self.model,
             )
-
+            error_occurred = False
             try:
                 payload = self._build_payload(df, summary, dataset_kind)
                 raw_response = self._invoke_model(payload)
                 suggestions = self._parse_suggestions(raw_response)
             except Exception as exc:  # pragma: no cover - defensive
+                error_occurred = True
                 logger.error(
                     "gemini_analysis_failed",
                     error_type=type(exc).__name__,
@@ -88,10 +149,10 @@ class GeminiClient:
                     model=self.model,
                     exc_info=True,
                 )
-                return []
+                suggestions = []
             finally:
                 duration_ms = int((time.perf_counter() - start) * 1000)
-                suggestions_count = len(locals().get("suggestions", []))
+                suggestions_count = len(suggestions)
                 logger.info(
                     "gemini_analysis_completed",
                     duration_ms=duration_ms,
@@ -101,6 +162,67 @@ class GeminiClient:
                 if span and span is not None:
                     span.set_tag("duration_ms", duration_ms)
                     span.set_tag("suggestions_count", suggestions_count)
+
+                # Emit metrics
+                metrics = get_metrics_client()
+                base_tags = default_metric_tags()
+                if dataset_kind:
+                    base_tags.append(f"dataset_kind:{dataset_kind}")
+                base_tags.append(f"model:{self.model}")
+
+                # Emit latency histogram
+                _safe_emit_metric(
+                    metrics.histogram,
+                    "cleanmydata.gemini.latency_ms",
+                    float(duration_ms),
+                    base_tags,
+                )
+
+                # Determine status for call metric
+                if error_occurred:
+                    call_status = "error"
+                elif suggestions_count > 0:
+                    call_status = "success"
+                else:
+                    call_status = "success"  # Success but no suggestions
+
+                # Emit call count metric
+                _safe_emit_metric(
+                    metrics.count,
+                    "cleanmydata.gemini.calls",
+                    1.0,
+                    base_tags + [f"status:{call_status}"],
+                )
+
+                # Emit suggestions count with category tags
+                if suggestions_count > 0:
+                    # Count total suggestions
+                    _safe_emit_metric(
+                        metrics.count,
+                        "cleanmydata.gemini.suggestions_count",
+                        float(suggestions_count),
+                        base_tags + ["status:success"],
+                    )
+                    # Count by category
+                    category_counts: dict[str, int] = {}
+                    for sug in suggestions:
+                        cat = sug.category
+                        category_counts[cat] = category_counts.get(cat, 0) + 1
+                    for category, count in category_counts.items():
+                        _safe_emit_metric(
+                            metrics.count,
+                            "cleanmydata.gemini.suggestions_count",
+                            float(count),
+                            base_tags + ["status:success", f"category:{category}"],
+                        )
+                elif not error_occurred:
+                    # Emit 0 count when no suggestions but call succeeded
+                    _safe_emit_metric(
+                        metrics.count,
+                        "cleanmydata.gemini.suggestions_count",
+                        0.0,
+                        base_tags + ["status:success"],
+                    )
 
         return suggestions
 

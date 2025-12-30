@@ -147,3 +147,21 @@ def get_metrics_client() -> MetricsClient:
         return HttpMetricsClient(api_key=api_key, site=site)
 
     return NoOpMetricsClient()
+
+
+def default_metric_tags() -> list[str]:
+    """
+    Return default metric tags for all metrics.
+
+    Includes:
+    - service:cleanmydata-api (standardized service tag)
+    - env:<value> (if DD_ENV or CLEANMYDATA_ENV is set, otherwise omitted)
+
+    Returns:
+        List of tag strings in the format "key:value".
+    """
+    tags = ["service:cleanmydata-api"]
+    env_value = os.getenv("DD_ENV") or os.getenv("CLEANMYDATA_ENV")
+    if env_value:
+        tags.append(f"env:{env_value}")
+    return tags

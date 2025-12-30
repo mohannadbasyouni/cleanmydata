@@ -1,4 +1,3 @@
-import os
 import re
 import time
 import unicodedata
@@ -7,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from cleanmydata.logging import get_logger
-from cleanmydata.metrics import MetricsClient, get_metrics_client
+from cleanmydata.metrics import MetricsClient, default_metric_tags, get_metrics_client
 
 try:
     from ddtrace import tracer
@@ -68,13 +67,8 @@ def _build_metric_tags(
     excel_used: bool | None,
     dataset_kind: str | None = None,
 ) -> list[str]:
-    env_tag = os.getenv("CLEANMYDATA_ENV") or os.getenv("ENV") or os.getenv("DD_ENV") or "dev"
     kind = dataset_kind or _determine_dataset_kind(dataset_name)
-    tags = [
-        "service:cleanmydata",
-        f"env:{env_tag}",
-        "runtime:cloudrun",
-    ]
+    tags = default_metric_tags() + ["runtime:cloudrun"]
     if kind:
         tags.append(f"dataset_kind:{kind}")
     if outliers_method:

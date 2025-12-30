@@ -50,7 +50,7 @@ def test_get_metrics_client_no_env(monkeypatch):
 
 
 def test_clean_data_emits_success_metrics(monkeypatch):
-    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("DD_ENV", "test")
     fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
     df = read_data(fixture_path)
     metrics = RecordingMetrics()
@@ -71,7 +71,7 @@ def test_clean_data_emits_success_metrics(monkeypatch):
     assert total_call is not None
     assert success_call is not None
     assert histogram_call is not None
-    for tag in ("service:cleanmydata", "env:test", "runtime:cloudrun"):
+    for tag in ("service:cleanmydata-api", "env:test", "runtime:cloudrun"):
         assert tag in total_call[3]
     assert "dataset_kind:csv" in total_call[3]
     assert "outliers_method:cap" in total_call[3]
@@ -81,7 +81,7 @@ def test_clean_data_emits_success_metrics(monkeypatch):
 
 
 def test_clean_data_emits_failure_metrics(monkeypatch):
-    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("DD_ENV", "test")
     df = pd.DataFrame({"a": [1, 2, 3]})
     metrics = RecordingMetrics()
 
@@ -104,7 +104,7 @@ def test_clean_data_emits_failure_metrics(monkeypatch):
 
 
 def test_metrics_errors_are_swallowed(monkeypatch):
-    monkeypatch.setenv("ENV", "test")
+    monkeypatch.setenv("DD_ENV", "test")
     fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
     df = read_data(fixture_path)
 

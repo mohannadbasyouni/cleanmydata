@@ -2,6 +2,7 @@ import pandas as pd
 
 from cleanmydata.ai.gemini import GeminiClient
 from cleanmydata.ai.prompts import build_quality_prompt
+from cleanmydata.metrics import MetricsClient
 from cleanmydata.models import Suggestion
 
 
@@ -17,6 +18,26 @@ class RecordingLogger:
 
     def error(self, event: str, **kwargs) -> None:  # noqa: ARG002
         self.events.append(("error", event))
+
+
+class RecordingMetrics(MetricsClient):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, float, list[str] | None]] = []
+
+    def count(self, name: str, value: float = 1, tags=None) -> None:  # noqa: ARG002
+        self.calls.append(("count", name, value, tags or []))
+
+    def gauge(self, name: str, value: float, tags=None) -> None:  # noqa: ARG002
+        self.calls.append(("gauge", name, value, tags or []))
+
+    def histogram(self, name: str, value: float, tags=None) -> None:  # noqa: ARG002
+        self.calls.append(("histogram", name, value, tags or []))
+
+    def find(self, metric_type: str, name: str) -> tuple[str, str, float, list[str]] | None:
+        for call in self.calls:
+            if call[0] == metric_type and call[1] == name:
+                return call
+        return None
 
 
 def _fresh_df() -> pd.DataFrame:
@@ -137,3 +158,106 @@ def test_parse_invalid_json_logs_and_returns_empty(monkeypatch):
     suggestions = client._parse_suggestions(bad_text)
     assert suggestions == []
     assert ("error", "gemini_parse_failed") in recorder.events
+
+
+def test_gemini_emits_latency_metric(monkeypatch):
+    """Test that Gemini analysis emits latency histogram metric."""
+    monkeypatch.setenv("CLEANMYDATA_GEMINI_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo")
+    metrics = RecordingMetrics()
+    monkeypatch.setattr("cleanmydata.ai.gemini.get_metrics_client", lambda: metrics)
+
+    client = GeminiClient()
+    monkeypatch.setattr(
+        client,
+        "_invoke_model",
+        lambda payload: [
+            {
+                "category": "quality",
+                "severity": "info",
+                "message": "Test suggestion",
+            }
+        ],
+    )
+
+    df = _fresh_df()
+    suggestions = client.analyze_data_quality(df, {"rows": 2, "columns": 2}, dataset_kind="csv")
+
+    assert len(suggestions) == 1
+    latency_call = metrics.find("histogram", "cleanmydata.gemini.latency_ms")
+    assert latency_call is not None
+    assert latency_call[2] >= 0  # duration_ms >= 0
+    assert "service:cleanmydata-api" in latency_call[3]
+    assert "dataset_kind:csv" in latency_call[3]
+    assert "model:" in " ".join(latency_call[3])
+
+
+def test_gemini_emits_suggestions_count_metric(monkeypatch):
+    """Test that Gemini analysis emits suggestions count metric."""
+    monkeypatch.setenv("CLEANMYDATA_GEMINI_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo")
+    metrics = RecordingMetrics()
+    monkeypatch.setattr("cleanmydata.ai.gemini.get_metrics_client", lambda: metrics)
+
+    client = GeminiClient()
+    monkeypatch.setattr(
+        client,
+        "_invoke_model",
+        lambda payload: [
+            {
+                "category": "quality",
+                "severity": "info",
+                "message": "Suggestion 1",
+            },
+            {
+                "category": "schema",
+                "severity": "warning",
+                "message": "Suggestion 2",
+            },
+            {
+                "category": "quality",
+                "severity": "info",
+                "message": "Suggestion 3",
+            },
+        ],
+    )
+
+    df = _fresh_df()
+    suggestions = client.analyze_data_quality(df, {"rows": 2, "columns": 2}, dataset_kind="csv")
+
+    assert len(suggestions) == 3
+    # Check total count metric
+    total_call = metrics.find("count", "cleanmydata.gemini.suggestions_count")
+    assert total_call is not None
+    assert total_call[2] == 3.0
+    assert "status:success" in total_call[3]
+    # Check category-specific counts
+    category_calls = [
+        call for call in metrics.calls if call[1] == "cleanmydata.gemini.suggestions_count"
+    ]
+    quality_calls = [c for c in category_calls if "category:quality" in c[3]]
+    schema_calls = [c for c in category_calls if "category:schema" in c[3]]
+    assert len(quality_calls) > 0
+    assert len(schema_calls) > 0
+
+
+def test_gemini_emits_zero_count_when_disabled(monkeypatch):
+    """Test that Gemini emits 0 count metric when disabled."""
+    monkeypatch.delenv("CLEANMYDATA_GEMINI_ENABLED", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    metrics = RecordingMetrics()
+    monkeypatch.setattr("cleanmydata.ai.gemini.get_metrics_client", lambda: metrics)
+
+    client = GeminiClient()
+    df = _fresh_df()
+    suggestions = client.analyze_data_quality(df, {"rows": 2, "columns": 2})
+
+    assert suggestions == []
+    # Should still emit latency metric (0ms)
+    latency_call = metrics.find("histogram", "cleanmydata.gemini.latency_ms")
+    assert latency_call is not None
+    # Should emit skipped count
+    skipped_call = metrics.find("count", "cleanmydata.gemini.suggestions_count")
+    assert skipped_call is not None
+    assert skipped_call[2] == 0.0
+    assert "status:skipped" in skipped_call[3]
