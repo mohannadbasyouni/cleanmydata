@@ -119,3 +119,13 @@ If signing fails, you'll see clear error messages indicating:
 - Service account email not found
 
 Check application logs for detailed error information.
+
+## Production Status
+
+The IAM-only signing implementation is verified and running in production on Cloud Run:
+
+- ✅ **IAM-only signing is live**: GCS signed URLs use IAM Credentials API (`SignBlob`) exclusively
+- ✅ **No service account keys**: JSON key files are not used or supported; all signing uses runtime identity
+- ✅ **Production verified**: Both upload (`POST /clean`) and download (`GET /clean/{job_id}/download`) endpoints tested successfully
+- ✅ **Cloud Run ready**: Service account email auto-detected from runtime identity; no manual key management required
+- ✅ **Zero keyfile dependencies**: `GOOGLE_APPLICATION_CREDENTIALS` is not required or expected to point to a JSON file
