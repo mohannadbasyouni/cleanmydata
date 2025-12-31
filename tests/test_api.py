@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from cleanmydata.api import app, job_store
