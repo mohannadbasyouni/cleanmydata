@@ -129,3 +129,5 @@ The IAM-only signing implementation is verified and running in production on Clo
 - ✅ **Production verified**: Both upload (`POST /clean`) and download (`GET /clean/{job_id}/download`) endpoints tested successfully
 - ✅ **Cloud Run ready**: Service account email auto-detected from runtime identity; no manual key management required
 - ✅ **Zero keyfile dependencies**: `GOOGLE_APPLICATION_CREDENTIALS` is not required or expected to point to a JSON file
+
+<!-- CI seed -->
