@@ -4,6 +4,10 @@ import os
 import tempfile
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("typer")
+
 from typer.testing import CliRunner
 
 os.environ.setdefault("DD_TRACE_ENABLED", "false")
