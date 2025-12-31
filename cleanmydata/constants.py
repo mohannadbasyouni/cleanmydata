@@ -1,5 +1,11 @@
 """Constants used throughout the cleanmydata package."""
 
+# Exit codes (CLI contract)
+EXIT_SUCCESS = 0
+EXIT_GENERAL_ERROR = 1
+EXIT_INVALID_INPUT = 2
+EXIT_IO_ERROR = 3
+
 # Supported file formats for reading/writing
 # IMPORTANT: Do NOT include .parquet yet (will be added in Phase 4)
 CORE_FORMATS = {".csv"}

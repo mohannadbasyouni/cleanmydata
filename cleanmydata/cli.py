@@ -9,7 +9,8 @@ from rich.console import Console
 from rich.table import Table
 
 from cleanmydata.clean import clean_data
-from cleanmydata.exceptions import DataLoadError
+from cleanmydata.constants import EXIT_GENERAL_ERROR, EXIT_SUCCESS
+from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.logging import configure_logging_json
 from cleanmydata.utils.io import read_data
 
@@ -18,6 +19,10 @@ app = typer.Typer(
     help="CleanMyData - A CLI data cleaning tool for automated cleaning of messy datasets",
 )
 console = Console()
+
+
+def _emit_error(message: str) -> None:
+    typer.secho(message, fg="red", err=True)
 
 
 @app.command()
@@ -29,6 +34,10 @@ def clean(
         None, "--output", "-o", help="Output file name (default: original_cleaned.csv)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed cleaning logs"),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress info/progress output"),
+    silent: bool = typer.Option(
+        False, "--silent", help="No stdout output (errors still to stderr)"
+    ),
     log: bool = typer.Option(
         False,
         "--log",
@@ -36,18 +45,32 @@ def clean(
     ),
 ):
     """Clean a messy dataset."""
-    configure_logging_json()
+    ctx = AppContext.create(
+        quiet=quiet,
+        silent=silent,
+        verbose=verbose,
+        log_to_file=log,
+    )
+    quiet_mode = ctx.mode in {"quiet", "silent"}
+    silent_mode = ctx.mode == "silent"
+    configure_logging_json(level="ERROR" if quiet_mode else "INFO")
+
+    def emit_info(message: str) -> None:
+        if quiet_mode:
+            return
+        typer.secho(message, fg="green")
+
     try:
         df = read_data(Path(path))
-    except (FileNotFoundError, DataLoadError) as e:
-        console.print(f"[red]Error loading dataset: {e}[/red]")
-        raise typer.Exit(code=1) from e
+    except Exception as exc:
+        _emit_error(f"Error loading dataset: {exc}")
+        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
 
     if df.empty:
-        console.print("[red]Failed to load dataset or file is empty.[/red]")
-        raise typer.Exit(code=1)
+        _emit_error("Failed to load dataset or file is empty.")
+        raise typer.Exit(code=EXIT_GENERAL_ERROR)
 
-    if verbose:
+    if ctx.verbose and not quiet_mode:
         console.rule("[bold]Original Data Preview[/bold]", style="white")
 
         preview = df.head(2)
@@ -62,16 +85,20 @@ def clean(
         console.print(table)
         console.print(f"[dim]Rows:[/dim] {df.shape[0]:,}   [dim]Columns:[/dim] {df.shape[1]}\n")
 
-    cleaned_df, summary = clean_data(
-        df,
-        verbose=verbose,
-        log=log,
-        dataset_name=os.path.basename(path),
-    )
+    try:
+        cleaned_df, summary = clean_data(
+            df,
+            verbose=ctx.verbose,
+            log=log,
+            dataset_name=os.path.basename(path),
+        )
+    except Exception as exc:
+        _emit_error(str(exc))
+        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
 
     if cleaned_df.empty:
-        console.print("[red]No data cleaned — dataset is empty or invalid.[/red]")
-        raise typer.Exit(code=1)
+        _emit_error("No data cleaned — dataset is empty or invalid.")
+        raise typer.Exit(code=EXIT_GENERAL_ERROR)
 
     filename = os.path.basename(path)
     name, ext = os.path.splitext(filename)
@@ -84,7 +111,14 @@ def clean(
 
     cleaned_df.to_csv(output_path, index=False)
 
-    console.print(f"\n[green]Cleaned data saved as '{output_path}'[/green]")
+    if silent_mode:
+        raise typer.Exit(code=EXIT_SUCCESS)
+    if quiet_mode:
+        typer.echo(output_path)
+    else:
+        emit_info(f"Cleaned data saved as '{output_path}'")
+
+    raise typer.Exit(code=EXIT_SUCCESS)
 
 
 if __name__ == "__main__":
