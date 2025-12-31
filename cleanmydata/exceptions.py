@@ -35,3 +35,15 @@ class StorageSigningError(CleanMyDataError):
     """Raised when GCS signed URL generation fails due to IAM/permission issues."""
 
     pass
+
+
+class InvalidInputError(CleanMyDataError):
+    """Raised when input data or configuration is invalid."""
+
+    pass
+
+
+class CleanIOError(CleanMyDataError):
+    """Raised when file I/O operations fail."""
+
+    pass
