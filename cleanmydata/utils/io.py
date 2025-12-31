@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DataLoadError, DependencyError
+from cleanmydata.models import CleaningResult
 
 
 def read_data(path: Path) -> pd.DataFrame:
@@ -101,3 +103,61 @@ def write_data(df: pd.DataFrame, path: Path) -> None:
         return
 
     raise DataLoadError(f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm")
+
+
+def clean_file(
+    input_path: Path, output_path: Path, config: CleaningConfig | None = None
+) -> CleaningResult:
+    """
+    Convenience API to clean a file and write the result to disk.
+
+    Args:
+        input_path: Path to the input data file (.csv, .xlsx, or .xlsm)
+        output_path: Path to write the cleaned data (.csv, .xlsx, or .xlsm)
+        config: Optional CleaningConfig to customize cleaning behavior.
+                If None, uses default CleaningConfig()
+
+    Returns:
+        CleaningResult containing summary statistics of the cleaning operation
+
+    Raises:
+        FileNotFoundError: If input_path does not exist
+        DataLoadError: If the file cannot be read or written
+        DependencyError: If Excel support is required but not installed
+    """
+    from cleanmydata.clean import clean_data
+
+    # Use default config if not provided
+    if config is None:
+        config = CleaningConfig()
+
+    # Read data
+    df = read_data(input_path)
+
+    # Clean data using the config
+    cleaned_df, summary = clean_data(
+        df,
+        outliers=config.outliers,
+        normalize_cols=config.normalize_cols,
+        clean_text=config.clean_text,
+        categorical_mapping=config.categorical_mapping,
+        auto_outlier_detect=config.auto_outlier_detect,
+        verbose=config.verbose,
+    )
+
+    # Write cleaned data
+    write_data(cleaned_df, output_path)
+
+    # Convert summary dict to CleaningResult
+    result = CleaningResult(
+        rows=summary.get("rows", 0),
+        columns=summary.get("columns", 0),
+        duplicates_removed=summary.get("duplicates_removed", 0),
+        outliers_handled=summary.get("outliers_handled", 0),
+        missing_filled=summary.get("missing_filled", 0),
+        columns_standardized=summary.get("columns_standardized", 0),
+        text_unconverted=summary.get("text_unconverted", 0),
+        duration=summary.get("duration", ""),
+    )
+
+    return result
