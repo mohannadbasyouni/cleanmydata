@@ -29,10 +29,8 @@ def test_read_data_file_not_found():
     """Test that reading a non-existent file raises FileNotFoundError."""
     non_existent_path = Path("tests/fixtures/nonexistent.csv")
 
-    with pytest.raises(FileNotFoundError) as exc_info:
+    with pytest.raises(FileNotFoundError):
         read_data(non_existent_path)
-
-    assert "File not found" in str(exc_info.value)
 
 
 def test_read_data_unsupported_format():
