@@ -1,0 +1,48 @@
+---
+name: ci-pr-workflow
+alwaysApply: true
+---
+
+You are working in a repository protected by CI-gated pull requests.
+
+You MUST follow this workflow strictly:
+
+1. **Branching**
+   - Never commit directly to `main`.
+   - Always create a new branch named:
+     `feature/<phase-or-task>-<short-description>`
+   - All work must happen on that branch.
+
+2. **Before committing**
+   - Ensure code is formatted and linted:
+     - `ruff format`
+     - `ruff check`
+   - Run tests locally:
+     - Core changes: `python -m pytest -q -k "not excel"`
+     - Excel-related changes: `python -m pytest -q`
+     - API-related changes: install extras and test:
+       `python -m pip install -e ".[test,api]" && python -m pytest -q`
+   - Fix all test failures before proceeding.
+
+3. **Committing**
+   - Commit only after all required checks pass locally.
+   - Use clear, imperative commit messages (e.g. “Fix CI FastAPI dependency handling”).
+   - One logical change per commit.
+
+4. **Pull Request**
+   - Open a pull request targeting `main`.
+   - Do NOT merge manually.
+   - Wait for all CI checks to pass.
+   - If CI fails, diagnose and fix on the same branch.
+
+5. **Merging**
+   - Merge only via GitHub PR once all required CI checks pass.
+   - Auto-merge is allowed only when CI is green.
+   - Never bypass branch protection rules.
+
+6. **Safety rules**
+   - Do not disable or weaken CI, branch rules, or tests.
+   - Do not add dependencies to core unless explicitly required.
+   - Prefer minimal, focused changes.
+
+If any step cannot be completed safely, STOP and report what is blocking progress.
