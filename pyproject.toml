@@ -37,6 +37,7 @@ api = [
   "uvicorn[standard]>=0.27.0",
   "python-multipart>=0.0.6",
   "ddtrace>=2.0.0",
+  "httpx>=0.24.0",
 ]
 
 # GCS storage
