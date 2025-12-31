@@ -485,6 +485,3 @@ Docs must include:
 
 - CI always green on main
 - core install does not pull CLI or Excel deps
-- CLI output modes + exit codes locked by tests
-- coverage: overall 70%+, critical modules 90%+
-- tox passes 3.10–3.12

@@ -210,5 +210,3 @@ async def analyze_data_quality(df: pd.DataFrame, cleaning_summary: dict) -> list
 | File | Changes ||------|---------|| [`cleanmydata/clean.py`](cleanmydata/clean.py) | Add trace decorators to each step; emit metrics after each step || [`cleanmydata/utils/__init__.py`](cleanmydata/utils/__init__.py) | Add `observability.py` module for Datadog helpers || [`pyproject.toml`](pyproject.toml) | Add new dependencies: `fastapi`, `uvicorn`, `ddtrace`, `google-cloud-aiplatform` |
 
 ### ADD (New Files)
-
-| File | Purpose ||------|---------|| `cleanmydata/api.py` | FastAPI application with `/clean` endpoint || `cleanmydata/ai/__init__.py` | AI module init || `cleanmydata/ai/gemini.py` | Vertex AI Gemini client || `cleanmydata/ai/prompts.py` | Prompt templates for data analysis || `cleanmydata/utils/observability.py` | Datadog metrics/logging helpers || `cleanmydata/utils/storage.py` | GCS upload/download helpers || `Dockerfile` | Container for Cloud Run || `cloudbuild.yaml` | Cloud Build config || `.env.example` | Environment variable template |---
