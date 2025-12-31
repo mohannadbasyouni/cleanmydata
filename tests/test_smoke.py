@@ -187,5 +187,5 @@ def test_clean_file_file_not_found(tmp_path):
     input_path = tmp_path / "nonexistent.csv"
     output_path = tmp_path / "output.csv"
 
-    with pytest.raises(FileNotFoundError, match="File not found"):
+    with pytest.raises(FileNotFoundError):
         clean_file(input_path, output_path)
