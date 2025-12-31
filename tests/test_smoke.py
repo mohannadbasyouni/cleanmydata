@@ -9,8 +9,10 @@ import pytest
 import cleanmydata
 import cleanmydata.clean as clean
 from cleanmydata.clean import clean_data
+from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DependencyError
-from cleanmydata.utils.io import read_data, write_data
+from cleanmydata.models import CleaningResult
+from cleanmydata.utils.io import clean_file, read_data, write_data
 
 
 def test_import_cleanmydata():
@@ -128,3 +130,62 @@ def test_excel_write_raises_dependencyerror_when_openpyxl_missing(monkeypatch, t
         match=r'^Excel support is not installed\. Install with: pip install "cleanmydata\[excel\]"$',
     ):
         write_data(df, out_path)
+
+
+def test_clean_file_csv_happy_path(tmp_path):
+    """Test clean_file with CSV file using default config."""
+    # Use the existing fixture as input
+    fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
+    output_path = tmp_path / "cleaned.csv"
+
+    # Call clean_file
+    result = clean_file(fixture_path, output_path)
+
+    # Verify result is CleaningResult
+    assert isinstance(result, CleaningResult)
+    assert result.success
+    assert result.rows > 0
+    assert result.columns > 0
+
+    # Verify output file was created
+    assert output_path.exists()
+
+    # Verify we can read it back
+    df = read_data(output_path)
+    assert not df.empty
+    assert len(df) == result.rows
+
+
+def test_clean_file_with_custom_config(tmp_path):
+    """Test clean_file with custom CleaningConfig."""
+    fixture_path = Path(__file__).parent / "fixtures" / "small.csv"
+    output_path = tmp_path / "cleaned_custom.csv"
+
+    # Create custom config
+    config = CleaningConfig(
+        outliers="remove",
+        normalize_cols=False,
+        clean_text=False,
+        verbose=False,
+    )
+
+    # Call clean_file with custom config
+    result = clean_file(fixture_path, output_path, config=config)
+
+    # Verify result
+    assert isinstance(result, CleaningResult)
+    assert result.success
+    assert result.rows > 0
+    assert result.columns > 0
+
+    # Verify output file was created
+    assert output_path.exists()
+
+
+def test_clean_file_file_not_found(tmp_path):
+    """Test clean_file raises FileNotFoundError for non-existent file."""
+    input_path = tmp_path / "nonexistent.csv"
+    output_path = tmp_path / "output.csv"
+
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        clean_file(input_path, output_path)
