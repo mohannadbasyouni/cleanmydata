@@ -6,7 +6,7 @@ from tempfile import NamedTemporaryFile
 import pandas as pd
 import pytest
 
-from cleanmydata.exceptions import DataLoadError
+from cleanmydata.exceptions import DataLoadError, DependencyError
 from cleanmydata.utils.io import read_data, write_data
 
 
@@ -106,3 +106,50 @@ def test_write_data_xls_rejected():
         assert "convert to .xlsx or .xlsm" in str(exc_info.value)
     finally:
         temp_path.unlink()
+
+
+def test_parquet_roundtrip(tmp_path: Path):
+    """Test reading and writing Parquet files when dependency is available."""
+    pytest.importorskip("pyarrow")
+
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    path = tmp_path / "data.parquet"
+
+    write_data(df, path)
+    result = read_data(path)
+
+    pd.testing.assert_frame_equal(result, df, check_dtype=False)
+
+
+def test_read_data_parquet_missing_dependency(monkeypatch, tmp_path: Path):
+    """read_data raises DependencyError when Parquet engine is unavailable."""
+    path = tmp_path / "data.parquet"
+    path.touch()
+
+    monkeypatch.setattr(
+        pd,
+        "read_parquet",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("engine missing")),
+    )
+
+    with pytest.raises(DependencyError) as exc_info:
+        read_data(path)
+
+    assert "cleanmydata[parquet]" in str(exc_info.value)
+
+
+def test_write_data_parquet_missing_dependency(monkeypatch, tmp_path: Path):
+    """write_data raises DependencyError when Parquet engine is unavailable."""
+    df = pd.DataFrame({"a": [1, 2]})
+    path = tmp_path / "data.parquet"
+
+    monkeypatch.setattr(
+        pd.DataFrame,
+        "to_parquet",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ImportError("engine missing")),
+    )
+
+    with pytest.raises(DependencyError) as exc_info:
+        write_data(df, path)
+
+    assert "cleanmydata[parquet]" in str(exc_info.value)

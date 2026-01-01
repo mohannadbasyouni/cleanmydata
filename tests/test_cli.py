@@ -125,6 +125,57 @@ def test_cli_overrides_env_and_yaml(tmp_path, monkeypatch):
     assert captured["verbose"] is True
 
 
+def test_cli_output_modes_yaml_quiet_env_silent(tmp_path):
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("quiet: true\nverbose: true\n", encoding="utf-8")
+
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "input.csv"},
+        config_path=config_path,
+        environ={"CLEANMYDATA_SILENT": "true"},
+    )
+
+    assert cfg.silent is True
+    assert cfg.quiet is False
+    assert cfg.verbose is False
+
+
+def test_cli_output_modes_yaml_verbose_env_quiet(tmp_path):
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("verbose: true\n", encoding="utf-8")
+
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "input.csv"},
+        config_path=config_path,
+        environ={"CLEANMYDATA_QUIET": "true"},
+    )
+
+    assert cfg.quiet is True
+    assert cfg.verbose is False
+
+
+def test_cli_cli_overrides_env_and_yaml_output_modes(tmp_path):
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("verbose: true\n", encoding="utf-8")
+
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "input.csv", "verbose": False},
+        config_path=config_path,
+        environ={"CLEANMYDATA_VERBOSE": "true"},
+    )
+
+    assert cfg.verbose is False
+
+
+def test_cli_input_without_suffix_defaults_to_csv(tmp_path):
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "dataset"}, environ={}, config_path=None
+    )
+
+    assert cfg.path.suffix == ".csv"
+    assert cfg.path.name.endswith(".csv")
+
+
 def test_cli_invalid_yaml_returns_exit_invalid_input(tmp_path):
     input_path = tmp_path / "input.csv"
     input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
@@ -184,6 +235,15 @@ def test_cli_normal_prints_errors_to_stderr():
     assert result.exit_code == EXIT_IO_ERROR
     assert result.stdout == ""
     assert "Error loading dataset:" in result.stderr
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--quiet"], ["--silent"]])
+def test_cli_errors_only_on_stderr(extra_args):
+    result = CliRunner().invoke(app, ["missing.csv", "--output", "out.csv", *extra_args])
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
 
 
 def test_cli_quiet_no_progress_stdout(tmp_path):
@@ -249,6 +309,17 @@ def test_cli_silent_correct_exit_code_on_error():
     assert result.exit_code == EXIT_IO_ERROR
 
 
+def test_cli_invalid_output_extension_returns_exit_invalid_input(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, [str(input_path), "--output", str(tmp_path / "out.txt")])
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert "output" in result.stderr.lower()
+    assert "supported" in result.stderr.lower()
+
+
 def test_cli_exit_0_on_success(tmp_path):
     input_path = tmp_path / "input.csv"
     input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
@@ -276,12 +347,27 @@ def test_cli_exit_2_on_invalid_input(monkeypatch):
 
 
 def test_cli_invalid_extension_returns_exit_invalid_input(tmp_path):
-    bad_path = tmp_path / "input.parquet"
+    bad_path = tmp_path / "input.txt"
 
     result = CliRunner().invoke(app, [str(bad_path), "--output", str(tmp_path / "out.csv")])
 
     assert result.exit_code == EXIT_INVALID_INPUT
     assert "Unsupported file format" in result.stderr
+
+
+def test_cli_validation_error_message_clean(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    bad_output = tmp_path / "out.txt"
+
+    result = CliRunner().invoke(app, [str(input_path), "--output", str(bad_output)])
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    lowered = result.stderr.lower()
+    assert lowered.startswith("error:")
+    assert "unsupported output file format" in lowered
+    assert "validation error for" not in lowered
 
 
 def test_cli_exit_3_on_file_not_found():

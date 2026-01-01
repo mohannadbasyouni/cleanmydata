@@ -6,7 +6,6 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError as PydanticValidationError
 from rich import box
-from rich.console import Console
 from rich.table import Table
 
 from cleanmydata.clean import clean_data
@@ -26,11 +25,30 @@ app = typer.Typer(
     name="cleanmydata",
     help="CleanMyData - A CLI data cleaning tool for automated cleaning of messy datasets",
 )
-console = Console()
 
 
-def _emit_error(message: str) -> None:
-    typer.secho(message, fg="red", err=True)
+def _format_error_message(error: Exception | str) -> str:
+    if isinstance(error, ValidationError) and isinstance(error.__cause__, PydanticValidationError):
+        return _format_error_message(error.__cause__)
+    if isinstance(error, PydanticValidationError):
+        fragments: list[str] = []
+        for err in error.errors():
+            location = ".".join(str(part) for part in err.get("loc", ()) if part != "__root__")
+            msg = err.get("msg", "").strip()
+            if location:
+                fragments.append(f"{location}: {msg}")
+            elif msg:
+                fragments.append(msg)
+        detail = "; ".join(fragments).strip()
+        if detail:
+            return f"Invalid input: {detail}"
+    return str(error)
+
+
+def _emit_error(ctx: AppContext | None, error: Exception | str) -> None:
+    message = _format_error_message(error)
+    console = ctx.get_console(stderr=True) if ctx else AppContext.create().get_console(stderr=True)
+    console.print(f"Error: {message}", soft_wrap=False, overflow="ignore", no_wrap=True)
 
 
 @app.command()
@@ -60,6 +78,12 @@ def clean(
     ),
 ):
     """Clean a messy dataset."""
+    base_ctx = AppContext.create(
+        quiet=bool(quiet or False),
+        silent=bool(silent or False),
+        verbose=bool(verbose or False),
+        log_to_file=bool(log or False),
+    )
     try:
         cli_config = CLIConfig.from_sources(
             cli_args={
@@ -75,10 +99,10 @@ def clean(
         )
         cleaning_config = cli_config.to_cleaning_config()
     except FileNotFoundError as exc:
-        _emit_error(str(exc))
+        _emit_error(base_ctx, exc)
         raise typer.Exit(code=EXIT_IO_ERROR) from exc
     except (PydanticValidationError, ValidationError) as exc:
-        _emit_error(str(exc))
+        _emit_error(base_ctx, exc)
         raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
 
     ctx = AppContext.create(
@@ -95,19 +119,20 @@ def clean(
     def emit_info(message: str) -> None:
         if quiet_mode:
             return
-        typer.secho(message, fg="green")
+        ctx.get_console().print(message, soft_wrap=False, overflow="ignore", no_wrap=True)
 
     try:
         df = read_data(Path(cli_config.path))
     except Exception as exc:
-        _emit_error(f"Error loading dataset: {exc}")
+        _emit_error(ctx, f"Error loading dataset: {exc}")
         raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
 
     if df.empty:
-        _emit_error("Failed to load dataset or file is empty.")
+        _emit_error(ctx, "Failed to load dataset or file is empty.")
         raise typer.Exit(code=EXIT_GENERAL_ERROR)
 
     if ctx.verbose and not quiet_mode:
+        console = ctx.get_console()
         console.rule("[bold]Original Data Preview[/bold]", style="white")
 
         preview = df.head(2)
@@ -135,11 +160,11 @@ def clean(
             dataset_name=Path(cli_config.path).name,
         )
     except Exception as exc:
-        _emit_error(str(exc))
+        _emit_error(ctx, exc)
         raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
 
     if cleaned_df.empty:
-        _emit_error("No data cleaned — dataset is empty or invalid.")
+        _emit_error(ctx, "No data cleaned — dataset is empty or invalid.")
         raise typer.Exit(code=EXIT_GENERAL_ERROR)
 
     filename = os.path.basename(cli_config.path)
@@ -155,7 +180,7 @@ def clean(
     if silent_mode:
         raise typer.Exit(code=EXIT_SUCCESS)
     if quiet_mode:
-        typer.echo(str(output_path))
+        ctx.get_console().print(str(output_path), soft_wrap=False, overflow="ignore", no_wrap=True)
     else:
         emit_info(f"Cleaned data saved as '{output_path}'")
 
