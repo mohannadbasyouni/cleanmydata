@@ -347,7 +347,7 @@ def test_cli_exit_2_on_invalid_input(monkeypatch):
 
 
 def test_cli_invalid_extension_returns_exit_invalid_input(tmp_path):
-    bad_path = tmp_path / "input.parquet"
+    bad_path = tmp_path / "input.txt"
 
     result = CliRunner().invoke(app, [str(bad_path), "--output", str(tmp_path / "out.csv")])
 
