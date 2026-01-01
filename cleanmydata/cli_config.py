@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from cleanmydata.config import CleaningConfig
@@ -50,7 +50,9 @@ class CLIConfig(BaseModel):
             raise ValueError("path must be provided")
 
         suffix = value.suffix.lower()
-        if suffix and suffix not in SUPPORTED_FORMATS:
+        if not suffix:
+            return value.with_suffix(".csv")
+        if suffix not in SUPPORTED_FORMATS:
             raise ValueError(
                 f"Unsupported file format: {suffix}. Supported formats: {sorted(SUPPORTED_FORMATS)}"
             )
@@ -63,6 +65,15 @@ class CLIConfig(BaseModel):
             return value
         if not str(value).strip():
             raise ValueError("output must not be empty")
+        suffix = value.suffix.lower()
+        if not suffix:
+            raise ValueError(
+                f"output must include a supported file extension {sorted(SUPPORTED_FORMATS)}"
+            )
+        if suffix not in SUPPORTED_FORMATS:
+            raise ValueError(
+                f"Unsupported output file format: {suffix}. Supported formats: {sorted(SUPPORTED_FORMATS)}"
+            )
         return value
 
     @field_validator("outliers")
@@ -73,6 +84,15 @@ class CLIConfig(BaseModel):
         if value not in OUTLIER_METHODS:
             raise ValueError(f"outliers must be one of {OUTLIER_METHODS}")
         return value
+
+    @model_validator(mode="after")
+    def _normalize_output_modes(self) -> CLIConfig:
+        if self.silent:
+            object.__setattr__(self, "quiet", False)
+            object.__setattr__(self, "verbose", False)
+        elif self.quiet:
+            object.__setattr__(self, "verbose", False)
+        return self
 
     def to_cleaning_config(self) -> CleaningConfig:
         """
