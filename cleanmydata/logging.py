@@ -1,4 +1,11 @@
-"""Structured JSON logging configured for Datadog compatibility."""
+"""Structured JSON logging configured for Datadog compatibility.
+
+Structured logging emits structured JSON so downstream systems and Datadog
+have machine-parseable events, while RichHandler (rich console logging) is
+limited to CLI wiring where human-friendly terminal output is desired.
+configure_logging_json exists for CLI wiring only; library consumers should
+not force a global logging configuration.
+"""
 
 from __future__ import annotations
 

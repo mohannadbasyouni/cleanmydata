@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("typer")
+pytest.importorskip("pydantic")
 
 from typer.testing import CliRunner
 
@@ -14,7 +15,12 @@ os.environ.setdefault("DD_TRACE_ENABLED", "false")
 os.environ.setdefault("DD_TRACE_STARTUP_LOGS", "false")
 
 from cleanmydata.cli import app
+from cleanmydata.cli_config import CLIConfig
 from cleanmydata.constants import (
+    DEFAULT_AUTO_OUTLIER_DETECT,
+    DEFAULT_CLEAN_TEXT,
+    DEFAULT_NORMALIZE_COLS,
+    DEFAULT_OUTLIER_METHOD,
     EXIT_GENERAL_ERROR,
     EXIT_INVALID_INPUT,
     EXIT_IO_ERROR,
@@ -30,6 +36,17 @@ def _create_sample_csv() -> Path:
     tmp.flush()
     tmp.close()
     return Path(tmp.name)
+
+
+def test_cli_config_defaults_mapping(tmp_path):
+    cli_cfg = CLIConfig(path=tmp_path / "input.csv")
+    cleaning_cfg = cli_cfg.to_cleaning_config()
+
+    assert cleaning_cfg.outliers == DEFAULT_OUTLIER_METHOD
+    assert cleaning_cfg.normalize_cols is DEFAULT_NORMALIZE_COLS
+    assert cleaning_cfg.clean_text is DEFAULT_CLEAN_TEXT
+    assert cleaning_cfg.auto_outlier_detect is DEFAULT_AUTO_OUTLIER_DETECT
+    assert cleaning_cfg.verbose is False
 
 
 def test_cli_normal_prints_info_to_stdout(tmp_path):
@@ -95,6 +112,21 @@ def test_cli_silent_errors_still_stderr():
     assert "Error loading dataset:" in result.stderr
 
 
+def test_cli_silent_overrides_quiet_option(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "silent_out.csv"
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--quiet", "--silent"]
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert result.stdout == ""
+    assert result.stderr == ""
+    assert output_path.exists()
+
+
 def test_cli_silent_correct_exit_code_on_error():
     result = CliRunner().invoke(app, ["missing.csv", "--output", "out.csv", "--silent"])
 
@@ -125,6 +157,15 @@ def test_cli_exit_2_on_invalid_input(monkeypatch):
         assert result.exit_code == EXIT_INVALID_INPUT
     finally:
         input_path.unlink(missing_ok=True)
+
+
+def test_cli_invalid_extension_returns_exit_invalid_input(tmp_path):
+    bad_path = tmp_path / "input.parquet"
+
+    result = CliRunner().invoke(app, [str(bad_path), "--output", str(tmp_path / "out.csv")])
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert "Unsupported file format" in result.stderr
 
 
 def test_cli_exit_3_on_file_not_found():
