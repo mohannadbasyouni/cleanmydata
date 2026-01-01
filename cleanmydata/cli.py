@@ -1,5 +1,6 @@
 """CLI entrypoint for cleanmydata using Typer."""
 
+import json
 import os
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import typer
 from pydantic import ValidationError as PydanticValidationError
 from rich import box
 from rich.table import Table
+from typer.core import TyperGroup
 
 from cleanmydata.clean import clean_data
 from cleanmydata.cli_config import CLIConfig
@@ -19,12 +21,30 @@ from cleanmydata.constants import (
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import ValidationError
 from cleanmydata.logging import configure_logging_json
+from cleanmydata.recipes import load_recipe
 from cleanmydata.utils.io import read_data
+
+
+class DefaultCommandGroup(TyperGroup):
+    """Typer group with a default command when none is provided."""
+
+    default_command = "clean"
+
+    def resolve_command(self, ctx, args):
+        if self.default_command:
+            if not args:
+                args = [self.default_command]
+            elif args[0] not in self.commands:
+                args = [self.default_command, *args]
+        return super().resolve_command(ctx, args)
+
 
 app = typer.Typer(
     name="cleanmydata",
     help="CleanMyData - A CLI data cleaning tool for automated cleaning of messy datasets",
+    cls=DefaultCommandGroup,
 )
+recipe_app = typer.Typer(name="recipe", help="Validate and inspect cleaning recipes")
 
 
 def _format_error_message(error: Exception | str) -> str:
@@ -76,6 +96,28 @@ def clean(
     config: Path | None = typer.Option(
         None, "--config", "-c", help="Path to YAML config file with CLI options"
     ),
+    recipe: Path | None = typer.Option(
+        None, "--recipe", help="Path to recipe YAML file with cleaning defaults"
+    ),
+    outliers: str | None = typer.Option(
+        None,
+        "--outliers",
+        case_sensitive=False,
+        help="Outlier handling strategy: cap, remove, or none",
+    ),
+    normalize_cols: bool | None = typer.Option(
+        None,
+        "--normalize-cols/--no-normalize-cols",
+        help="Normalize column names (true/false)",
+    ),
+    clean_text: bool | None = typer.Option(
+        None, "--clean-text/--no-clean-text", help="Enable text cleaning"
+    ),
+    auto_outlier_detect: bool | None = typer.Option(
+        None,
+        "--auto-outlier-detect/--no-auto-outlier-detect",
+        help="Automatically detect outliers",
+    ),
 ):
     """Clean a messy dataset."""
     base_ctx = AppContext.create(
@@ -93,9 +135,14 @@ def clean(
                 "quiet": quiet,
                 "silent": silent,
                 "log": log,
+                "outliers": CLIConfig._parse_outliers(outliers) if outliers else None,
+                "normalize_cols": normalize_cols,
+                "clean_text": clean_text,
+                "auto_outlier_detect": auto_outlier_detect,
             },
             config_path=config,
             environ=os.environ,
+            recipe_path=recipe,
         )
         cleaning_config = cli_config.to_cleaning_config()
     except FileNotFoundError as exc:
@@ -185,6 +232,47 @@ def clean(
         emit_info(f"Cleaned data saved as '{output_path}'")
 
     raise typer.Exit(code=EXIT_SUCCESS)
+
+
+@recipe_app.command("validate")
+def recipe_validate(path: Path):
+    """Validate a recipe file without running cleaning."""
+
+    ctx = AppContext.create()
+    try:
+        recipe = load_recipe(path)
+    except FileNotFoundError as exc:
+        _emit_error(ctx, exc)
+        raise typer.Exit(code=EXIT_IO_ERROR) from exc
+    except (PydanticValidationError, ValidationError) as exc:
+        _emit_error(ctx, exc)
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    ctx.get_console().print(f"Recipe valid: {recipe.name}", soft_wrap=False)
+    raise typer.Exit(code=EXIT_SUCCESS)
+
+
+@recipe_app.command("show")
+def recipe_show(path: Path):
+    """Show a normalized view of a recipe file."""
+
+    ctx = AppContext.create()
+    try:
+        recipe = load_recipe(path)
+    except FileNotFoundError as exc:
+        _emit_error(ctx, exc)
+        raise typer.Exit(code=EXIT_IO_ERROR) from exc
+    except (PydanticValidationError, ValidationError) as exc:
+        _emit_error(ctx, exc)
+        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+
+    normalized = recipe.model_dump(exclude_none=True)
+    rendered = json.dumps(normalized, sort_keys=True, indent=2)
+    ctx.get_console().print(rendered)
+    raise typer.Exit(code=EXIT_SUCCESS)
+
+
+app.add_typer(recipe_app, name="recipe")
 
 
 if __name__ == "__main__":
