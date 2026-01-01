@@ -19,10 +19,11 @@ from cleanmydata.constants import (
     EXIT_SUCCESS,
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
-from cleanmydata.exceptions import ValidationError
+from cleanmydata.exceptions import DependencyError, ValidationError
 from cleanmydata.logging import configure_logging_json
 from cleanmydata.recipes import load_recipe
 from cleanmydata.utils.io import read_data
+from cleanmydata.validation.schema import validate_df_with_yaml
 
 
 class DefaultCommandGroup(TyperGroup):
@@ -98,6 +99,11 @@ def clean(
     ),
     recipe: Path | None = typer.Option(
         None, "--recipe", help="Path to recipe YAML file with cleaning defaults"
+    ),
+    schema: Path | None = typer.Option(
+        None,
+        "--schema",
+        help="Path to a YAML schema for validation (requires cleanmydata[schema])",
     ),
     outliers: str | None = typer.Option(
         None,
@@ -177,6 +183,19 @@ def clean(
     if df.empty:
         _emit_error(ctx, "Failed to load dataset or file is empty.")
         raise typer.Exit(code=EXIT_GENERAL_ERROR)
+
+    if schema:
+        try:
+            validate_df_with_yaml(df, Path(schema))
+        except FileNotFoundError as exc:
+            _emit_error(ctx, exc)
+            raise typer.Exit(code=EXIT_IO_ERROR) from exc
+        except DependencyError as exc:
+            _emit_error(ctx, exc)
+            raise typer.Exit(code=EXIT_GENERAL_ERROR) from exc
+        except ValidationError as exc:
+            _emit_error(ctx, exc)
+            raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
 
     if ctx.verbose and not quiet_mode:
         console = ctx.get_console()

@@ -73,12 +73,18 @@ test = [
   "pytest-cov>=4.0.0",
   "PyYAML>=6.0.0",
   "pydantic>=2.0.0",
+  "pandera>=0.18.0",
 ]
 
 dev = [
   "pre-commit>=3.0.0",
   "mypy>=1.7.0",
   "tox>=4.0.0",
+]
+
+# Schema validation extra
+schema = [
+  "pandera>=0.18.0",
 ]
 
 # "all" must be literal union (no nested extras references).
@@ -95,6 +101,7 @@ all = [
   "google-cloud-aiplatform>=1.71.1",
   "pytest>=7.0.0",
   "pytest-cov>=4.0.0",
+  "pandera>=0.18.0",
   "pre-commit>=3.0.0",
   "mypy>=1.7.0",
   "tox>=4.0.0",

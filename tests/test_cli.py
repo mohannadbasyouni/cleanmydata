@@ -420,6 +420,36 @@ def test_cli_excel_without_extra_shows_install_hint(monkeypatch):
     assert 'pip install "cleanmydata[excel]"' in result.stderr
 
 
+def test_cli_schema_validation_failure_returns_exit_invalid_input(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n200,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "schema.yml"
+    schema_path.write_text(
+        "\n".join(
+            [
+                "columns:",
+                "  age:",
+                "    dtype: int",
+                "    checks:",
+                "      - in_range:",
+                "          min: 0",
+                "          max: 120",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    assert "Error:" in result.stderr
+    assert "Schema validation failed" in result.stderr
+
+
 def test_cli_recipe_applied_as_defaults(tmp_path, monkeypatch):
     input_path = tmp_path / "input.csv"
     input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
