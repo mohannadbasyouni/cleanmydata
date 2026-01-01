@@ -63,7 +63,7 @@ excel = [
   "openpyxl>=3.1.0",
 ]
 
-# Parquet engine only (feature implemented later).
+# Parquet engine for read/write of .parquet files.
 parquet = [
   "pyarrow>=10.0.0",
 ]

@@ -11,10 +11,10 @@ from cleanmydata.models import CleaningResult
 
 def read_data(path: Path) -> pd.DataFrame:
     """
-    Read data from CSV or Excel file (XLSX/XLSM only).
+    Read data from CSV, Excel (XLSX/XLSM), or Parquet file.
 
     Args:
-        path: Path to the data file (.csv, .xlsx, or .xlsm)
+        path: Path to the data file (.csv, .xlsx, .xlsm, or .parquet)
 
     Returns:
         DataFrame containing the loaded data
@@ -22,7 +22,7 @@ def read_data(path: Path) -> pd.DataFrame:
     Raises:
         DataLoadError: If the file cannot be read or format is unsupported
         FileNotFoundError: If the file does not exist
-        DependencyError: If Excel support is required but not installed
+        DependencyError: If Excel/Parquet support is required but not installed
     """
     path = Path(path)
 
@@ -35,7 +35,7 @@ def read_data(path: Path) -> pd.DataFrame:
     if suffix == ".xls":
         raise DataLoadError(
             "Unsupported file format: .xls (old Excel format). "
-            "Please convert to .xlsx or .xlsm. Supported formats: .csv, .xlsx, .xlsm"
+            "Please convert to .xlsx or .xlsm. Supported formats: .csv, .xlsx, .xlsm, .parquet"
         )
 
     try:
@@ -49,9 +49,16 @@ def read_data(path: Path) -> pd.DataFrame:
                     'Excel support is not installed. Install with: pip install "cleanmydata[excel]"'
                 ) from e
             df = pd.read_excel(path)
+        elif suffix == ".parquet":
+            try:
+                df = pd.read_parquet(path)
+            except ImportError as e:
+                raise DependencyError(
+                    'Parquet support is not installed. Install with: pip install "cleanmydata[parquet]"'
+                ) from e
         else:
             raise DataLoadError(
-                f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm"
+                f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm, .parquet"
             )
 
         return df
@@ -68,15 +75,15 @@ def read_data(path: Path) -> pd.DataFrame:
 
 def write_data(df: pd.DataFrame, path: Path) -> None:
     """
-    Write data to CSV or Excel file (XLSX/XLSM only).
+    Write data to CSV, Excel (XLSX/XLSM), or Parquet file.
 
     Args:
         df: DataFrame to write
-        path: Output file path (.csv, .xlsx, or .xlsm)
+        path: Output file path (.csv, .xlsx, .xlsm, or .parquet)
 
     Raises:
         DataLoadError: If the file cannot be written or format is unsupported
-        DependencyError: If Excel support is required but not installed
+        DependencyError: If Excel/Parquet support is required but not installed
     """
     path = Path(path)
     suffix = path.suffix.lower()
@@ -89,7 +96,7 @@ def write_data(df: pd.DataFrame, path: Path) -> None:
     if suffix == ".xls":
         raise DataLoadError(
             "Unsupported file format: .xls (old Excel format). "
-            "Please convert to .xlsx or .xlsm. Supported formats: .csv, .xlsx, .xlsm"
+            "Please convert to .xlsx or .xlsm. Supported formats: .csv, .xlsx, .xlsm, .parquet"
         )
 
     if suffix in (".xlsx", ".xlsm"):
@@ -101,8 +108,18 @@ def write_data(df: pd.DataFrame, path: Path) -> None:
             ) from e
         df.to_excel(path, index=False)
         return
+    if suffix == ".parquet":
+        try:
+            df.to_parquet(path, index=False)
+        except ImportError as e:
+            raise DependencyError(
+                'Parquet support is not installed. Install with: pip install "cleanmydata[parquet]"'
+            ) from e
+        return
 
-    raise DataLoadError(f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm")
+    raise DataLoadError(
+        f"Unsupported file format: {suffix}. Supported formats: .csv, .xlsx, .xlsm, .parquet"
+    )
 
 
 def clean_file(
@@ -112,8 +129,8 @@ def clean_file(
     Convenience API to clean a file and write the result to disk.
 
     Args:
-        input_path: Path to the input data file (.csv, .xlsx, or .xlsm)
-        output_path: Path to write the cleaned data (.csv, .xlsx, or .xlsm)
+        input_path: Path to the input data file (.csv, .xlsx, .xlsm, or .parquet)
+        output_path: Path to write the cleaned data (.csv, .xlsx, .xlsm, or .parquet)
         config: Optional CleaningConfig to customize cleaning behavior.
                 If None, uses default CleaningConfig()
 

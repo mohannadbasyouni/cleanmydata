@@ -7,11 +7,11 @@ EXIT_INVALID_INPUT = 2
 EXIT_IO_ERROR = 3
 
 # Supported file formats for reading/writing
-# IMPORTANT: Do NOT include .parquet yet (will be added in Phase 4)
 CORE_FORMATS = {".csv"}
 # Excel formats require the optional extra: `pip install "cleanmydata[excel]"`.
 EXCEL_FORMATS = {".xlsx", ".xlsm"}
-SUPPORTED_FORMATS = CORE_FORMATS | EXCEL_FORMATS
+PARQUET_FORMATS = {".parquet"}
+SUPPORTED_FORMATS = CORE_FORMATS | EXCEL_FORMATS | PARQUET_FORMATS
 
 # Outlier handling methods
 OUTLIER_METHODS = ["cap", "remove", None]
