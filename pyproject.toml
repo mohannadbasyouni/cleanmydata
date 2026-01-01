@@ -74,6 +74,7 @@ test = [
   "PyYAML>=6.0.0",
   "pydantic>=2.0.0",
   "pandera>=0.18.0",
+  "mypy>=1.7.0",
 ]
 
 dev = [
@@ -142,3 +143,29 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.mypy]
+# Phase 5.2: relaxed typing baseline to get mypy running in CI without blocking.
+python_version = "3.10"
+warn_unused_configs = true
+show_error_codes = true
+pretty = true
+
+# Relaxed defaults (prefer config over code churn for now).
+check_untyped_defs = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+no_implicit_optional = false
+
+# Avoid failing on optional deps / missing stubs at this stage.
+ignore_missing_imports = true
+
+# Keep CI green while we ratchet typing over time (prefer config over refactors).
+disable_error_code = ["arg-type", "assignment", "index", "dict-item", "import-untyped"]
+
+# Keep tests out of the initial typing surface area.
+exclude = "(^tests/|/tests/)"
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
