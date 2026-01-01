@@ -1,5 +1,7 @@
 """Core I/O functions for reading and writing data files."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import pandas as pd
@@ -9,7 +11,7 @@ from cleanmydata.exceptions import DataLoadError, DependencyError
 from cleanmydata.models import CleaningResult
 
 
-def read_data(path: Path) -> pd.DataFrame:
+def read_data(path: Path | str) -> pd.DataFrame:
     """
     Read data from CSV, Excel (XLSX/XLSM), or Parquet file.
 
@@ -73,7 +75,7 @@ def read_data(path: Path) -> pd.DataFrame:
         raise DataLoadError(f"Unexpected error while loading file {path}: {e}") from e
 
 
-def write_data(df: pd.DataFrame, path: Path) -> None:
+def write_data(df: pd.DataFrame, path: Path | str) -> None:
     """
     Write data to CSV, Excel (XLSX/XLSM), or Parquet file.
 
@@ -123,7 +125,9 @@ def write_data(df: pd.DataFrame, path: Path) -> None:
 
 
 def clean_file(
-    input_path: Path, output_path: Path, config: CleaningConfig | None = None
+    input_path: Path | str,
+    output_path: Path | str,
+    config: CleaningConfig | None = None,
 ) -> CleaningResult:
     """
     Convenience API to clean a file and write the result to disk.

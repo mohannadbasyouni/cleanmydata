@@ -1,6 +1,9 @@
 """Data models for the cleanmydata package."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -72,7 +75,7 @@ class CleaningResult:
         """Add a warning message."""
         self.warnings.append(message)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """Convert result to dictionary format."""
         return {
             "rows": self.rows,
@@ -100,9 +103,9 @@ class Suggestion:
     severity: str
     message: str
     column: str | None = None
-    evidence: dict | None = None
+    evidence: dict[str, Any] | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """Convert suggestion to a serializable dict."""
         return {
             "category": self.category,
