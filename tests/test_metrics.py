@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from cleanmydata.clean import clean_data
+from cleanmydata.cleaning import clean_data
 from cleanmydata.metrics import MetricsClient, NoOpMetricsClient, get_metrics_client
 from cleanmydata.utils.io import read_data
 
@@ -88,7 +88,7 @@ def test_clean_data_emits_failure_metrics(monkeypatch):
     def boom(*args, **kwargs):  # noqa: ARG001
         raise ValueError("boom")
 
-    monkeypatch.setattr("cleanmydata.clean.remove_duplicates", boom)
+    monkeypatch.setattr("cleanmydata.cleaning.pipeline.remove_duplicates", boom)
 
     with pytest.raises(ValueError):
         clean_data(df, verbose=False, metrics_client=metrics, dataset_name="fail.csv")

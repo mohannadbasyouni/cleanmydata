@@ -7,8 +7,8 @@ import pandas as pd
 
 from cleanmydata.constants import OUTLIER_METHODS
 from cleanmydata.exceptions import InvalidInputError
-from cleanmydata.logging import get_logger
 from cleanmydata.metrics import MetricsClient, default_metric_tags, get_metrics_client
+from cleanmydata.utils.logging import get_logger
 
 try:
     from ddtrace import tracer

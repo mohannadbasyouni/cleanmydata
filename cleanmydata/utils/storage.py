@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from cleanmydata.exceptions import StorageSigningError
-from cleanmydata.logging import get_logger
+from cleanmydata.utils.logging import get_logger
 
 logger = get_logger(__name__)
 

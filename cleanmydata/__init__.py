@@ -2,7 +2,7 @@
 
 __version__ = "0.1.0"
 
-from cleanmydata.clean import clean_data
+from cleanmydata.cleaning import clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import (
     CleanMyDataError,

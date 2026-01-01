@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from cleanmydata.clean import clean_data, normalize_column_names
+from cleanmydata.cleaning.pipeline import clean_data, normalize_column_names
 from cleanmydata.exceptions import InvalidInputError
 
 

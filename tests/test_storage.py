@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from cleanmydata.exceptions import StorageSigningError
-from cleanmydata.logging import configure_logging_json, reset_logging_for_tests
+from cleanmydata.utils.logging import configure_logging_json, reset_logging_for_tests
 from cleanmydata.utils.storage import (
     GCSStorageClient,
     NoOpStorageClient,

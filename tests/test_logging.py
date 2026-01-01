@@ -4,7 +4,7 @@ import types
 
 import pytest
 
-from cleanmydata.logging import configure_logging_json, get_logger, reset_logging_for_tests
+from cleanmydata.utils.logging import configure_logging_json, get_logger, reset_logging_for_tests
 
 
 @pytest.fixture(autouse=True)

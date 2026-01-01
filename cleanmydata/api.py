@@ -23,11 +23,11 @@ from pydantic import (
 )
 
 from cleanmydata.ai.gemini import GeminiClient
-from cleanmydata.clean import _determine_dataset_kind, clean_data
+from cleanmydata.cleaning.pipeline import _determine_dataset_kind, clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DataLoadError
-from cleanmydata.logging import get_logger
 from cleanmydata.models import Suggestion
+from cleanmydata.utils.logging import get_logger
 from cleanmydata.utils.storage import get_storage_client
 
 # -----------------------------------------------------------------------------

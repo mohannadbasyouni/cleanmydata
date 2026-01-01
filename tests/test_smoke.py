@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 
 import cleanmydata
-import cleanmydata.clean as clean
-from cleanmydata.clean import clean_data
+import cleanmydata.cleaning.pipeline as clean
+from cleanmydata.cleaning import clean_data
 from cleanmydata.config import CleaningConfig
 from cleanmydata.exceptions import DependencyError
 from cleanmydata.models import CleaningResult

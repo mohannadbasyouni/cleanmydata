@@ -10,7 +10,7 @@ from rich import box
 from rich.table import Table
 from typer.core import TyperGroup
 
-from cleanmydata.clean import clean_data
+from cleanmydata.cleaning import clean_data
 from cleanmydata.cli_config import CLIConfig
 from cleanmydata.constants import (
     EXIT_GENERAL_ERROR,
@@ -20,9 +20,9 @@ from cleanmydata.constants import (
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import DependencyError, ValidationError
-from cleanmydata.logging import configure_logging_json
 from cleanmydata.recipes import load_recipe
 from cleanmydata.utils.io import read_data, write_data
+from cleanmydata.utils.logging import configure_logging_json
 from cleanmydata.validation.schema import validate_df_with_yaml
 
 

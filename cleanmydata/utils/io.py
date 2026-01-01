@@ -142,7 +142,7 @@ def clean_file(
         DataLoadError: If the file cannot be read or written
         DependencyError: If Excel support is required but not installed
     """
-    from cleanmydata.clean import clean_data
+    from cleanmydata.cleaning import clean_data
 
     # Use default config if not provided
     if config is None:

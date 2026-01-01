@@ -10,9 +10,9 @@ from typing import Any
 import pandas as pd
 
 from cleanmydata.ai.prompts import build_quality_prompt
-from cleanmydata.logging import get_logger
 from cleanmydata.metrics import default_metric_tags, get_metrics_client
 from cleanmydata.models import Suggestion
+from cleanmydata.utils.logging import get_logger
 
 try:  # pragma: no cover - optional dependency
     from ddtrace import tracer  # type: ignore
