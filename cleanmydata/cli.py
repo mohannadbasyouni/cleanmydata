@@ -11,7 +11,12 @@ from rich.table import Table
 
 from cleanmydata.clean import clean_data
 from cleanmydata.cli_config import CLIConfig
-from cleanmydata.constants import EXIT_GENERAL_ERROR, EXIT_INVALID_INPUT, EXIT_SUCCESS
+from cleanmydata.constants import (
+    EXIT_GENERAL_ERROR,
+    EXIT_INVALID_INPUT,
+    EXIT_IO_ERROR,
+    EXIT_SUCCESS,
+)
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import ValidationError
 from cleanmydata.logging import configure_logging_json
@@ -30,34 +35,48 @@ def _emit_error(message: str) -> None:
 
 @app.command()
 def clean(
-    path: str = typer.Argument(
-        ..., help=".csv (default), .xlsx/.xlsm (requires cleanmydata[excel])"
+    path: str | None = typer.Argument(
+        None, help=".csv (default), .xlsx/.xlsm (requires cleanmydata[excel])"
     ),
     output: str | None = typer.Option(
         None, "--output", "-o", help="Output file name (default: original_cleaned.csv)"
     ),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed cleaning logs"),
-    quiet: bool = typer.Option(False, "--quiet", help="Suppress info/progress output"),
-    silent: bool = typer.Option(
-        False, "--silent", help="No stdout output (errors still to stderr)"
+    verbose: bool | None = typer.Option(
+        None, "--verbose/--no-verbose", "-v/-V", help="Show detailed cleaning logs"
     ),
-    log: bool = typer.Option(
-        False,
-        "--log",
+    quiet: bool | None = typer.Option(
+        None, "--quiet/--no-quiet", help="Suppress info/progress output"
+    ),
+    silent: bool | None = typer.Option(
+        None, "--silent/--no-silent", help="No stdout output (errors still to stderr)"
+    ),
+    log: bool | None = typer.Option(
+        None,
+        "--log/--no-log",
         help="Deprecated: no-op (structured JSON logs are always emitted to stdout/stderr)",
+    ),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to YAML config file with CLI options"
     ),
 ):
     """Clean a messy dataset."""
     try:
-        cli_config = CLIConfig.from_cli(
-            path=path,
-            output=output,
-            verbose=verbose,
-            quiet=quiet,
-            silent=silent,
-            log=log,
+        cli_config = CLIConfig.from_sources(
+            cli_args={
+                "path": path,
+                "output": output,
+                "verbose": verbose,
+                "quiet": quiet,
+                "silent": silent,
+                "log": log,
+            },
+            config_path=config,
+            environ=os.environ,
         )
         cleaning_config = cli_config.to_cleaning_config()
+    except FileNotFoundError as exc:
+        _emit_error(str(exc))
+        raise typer.Exit(code=EXIT_IO_ERROR) from exc
     except (PydanticValidationError, ValidationError) as exc:
         _emit_error(str(exc))
         raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
