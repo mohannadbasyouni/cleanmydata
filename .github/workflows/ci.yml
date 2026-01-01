@@ -38,7 +38,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"
       - name: Run tests
-        run: python -m pytest -q -k "not excel"
+        run: python -m pytest -q --cov=cleanmydata --cov-report=term-missing -k "not excel"
 
   excel-install:
     runs-on: ubuntu-latest
@@ -55,7 +55,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test,excel]"
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest -q --cov=cleanmydata --cov-report=term-missing
 
   api-install:
     runs-on: ubuntu-latest
@@ -72,7 +72,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[test,api]"
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest -q --cov=cleanmydata --cov-report=term-missing
 
   packaging:
     runs-on: ubuntu-latest
