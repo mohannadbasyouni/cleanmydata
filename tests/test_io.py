@@ -6,8 +6,8 @@ from tempfile import NamedTemporaryFile
 import pandas as pd
 import pytest
 
-from cleanmydata.exceptions import DataLoadError, DependencyError
-from cleanmydata.utils.io import read_data, write_data
+from cleanmydata.exceptions import DataLoadError, DependencyError, InvalidInputError
+from cleanmydata.utils.io import clean_file, read_data, write_data
 
 
 def test_read_data_csv_success():
@@ -153,3 +153,14 @@ def test_write_data_parquet_missing_dependency(monkeypatch, tmp_path: Path):
         write_data(df, path)
 
     assert "cleanmydata[parquet]" in str(exc_info.value)
+
+
+def test_clean_file_empty_input_raises_and_does_not_write_output(tmp_path: Path):
+    input_path = tmp_path / "empty.csv"
+    input_path.write_text("name,age\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    with pytest.raises(InvalidInputError):
+        clean_file(input_path, output_path)
+
+    assert not output_path.exists()

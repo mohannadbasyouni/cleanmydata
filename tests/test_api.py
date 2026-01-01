@@ -216,6 +216,17 @@ def test_post_clean_with_invalid_format(client):
     )
 
 
+def test_post_clean_with_invalid_outliers_returns_422(client, sample_csv_file, mock_storage_client):
+    with patch("cleanmydata.api.storage_client", mock_storage_client):
+        response = client.post(
+            "/clean",
+            params={"outliers": "bogus"},
+            files={"file": sample_csv_file},
+        )
+
+    assert response.status_code == 422
+
+
 def test_health_endpoints(client):
     """Test health check endpoints."""
     root_response = client.get("/")

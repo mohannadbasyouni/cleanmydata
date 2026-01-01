@@ -13,7 +13,14 @@ from ddtrace import config as dd_config
 from ddtrace import patch, tracer
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+)
+from pydantic import (
+    ValidationError as PydanticValidationError,
+)
 
 from cleanmydata.ai.gemini import GeminiClient
 from cleanmydata.clean import _determine_dataset_kind, clean_data
@@ -77,6 +84,14 @@ class CleaningOptions(BaseModel):
     auto_outlier_detect: bool = Field(
         default=True, description="Auto-detect outlier method per column"
     )
+
+    @field_validator("outliers")
+    @classmethod
+    def _validate_outliers(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"cap", "remove", "none"}:
+            raise ValueError("outliers must be one of: cap, remove, none")
+        return normalized
 
 
 class JobSubmitResponse(BaseModel):
@@ -387,12 +402,22 @@ async def submit_cleaning_job(
     job_id = job_store.create_job(file.filename)
 
     # Build options
-    options = CleaningOptions(
-        outliers=outliers,
-        normalize_cols=normalize_cols,
-        clean_text=clean_text,
-        auto_outlier_detect=auto_outlier_detect,
-    )
+    try:
+        options = CleaningOptions(
+            outliers=outliers,
+            normalize_cols=normalize_cols,
+            clean_text=clean_text,
+            auto_outlier_detect=auto_outlier_detect,
+        )
+    except PydanticValidationError as exc:
+        errors = []
+        for err in exc.errors():
+            err = dict(err)
+            err.pop("ctx", None)  # ctx may contain non-JSON-serializable objects (e.g., ValueError)
+            errors.append(err)
+        raise HTTPException(status_code=422, detail=errors) from exc
+    except Exception:
+        raise
 
     # Start background processing
     background_tasks.add_task(run_cleaning_pipeline, job_id, df, options)
