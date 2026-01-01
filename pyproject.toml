@@ -55,6 +55,7 @@ cli = [
   "rich>=14.0.0",
   "typer>=0.9.0",
   "pydantic>=2.7.0",
+  "PyYAML>=6.0.0",
 ]
 
 # Excel engine only (used by read/write for xlsx/xlsm).

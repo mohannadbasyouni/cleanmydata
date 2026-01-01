@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 os.environ.setdefault("DD_TRACE_ENABLED", "false")
 os.environ.setdefault("DD_TRACE_STARTUP_LOGS", "false")
 
+from cleanmydata import cli as cli_module
 from cleanmydata.cli import app
 from cleanmydata.cli_config import CLIConfig
 from cleanmydata.constants import (
@@ -36,6 +37,121 @@ def _create_sample_csv() -> Path:
     tmp.flush()
     tmp.close()
     return Path(tmp.name)
+
+
+def test_cli_yaml_config_applied(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        "verbose: true\noutliers: remove\nnormalize_cols: false\n", encoding="utf-8"
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(output_path), "--config", str(config_path)],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] == "remove"
+    assert captured["normalize_cols"] is False
+    assert captured["verbose"] is True
+
+
+def test_cli_env_overrides_yaml(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("verbose: true\noutliers: remove\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    env = os.environ.copy()
+    env["CLEANMYDATA_VERBOSE"] = "false"
+    env["CLEANMYDATA_OUTLIERS"] = "cap"
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(output_path), "--config", str(config_path)],
+        env=env,
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["verbose"] is False
+    assert captured["outliers"] == "cap"
+
+
+def test_cli_overrides_env_and_yaml(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("verbose: false\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    env = os.environ.copy()
+    env["CLEANMYDATA_VERBOSE"] = "false"
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(output_path), "--config", str(config_path), "--verbose"],
+        env=env,
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["verbose"] is True
+
+
+def test_cli_invalid_yaml_returns_exit_invalid_input(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    config_path = tmp_path / "bad.yml"
+    config_path.write_text(":\n  - bad\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(tmp_path / "out.csv"), "--config", str(config_path)],
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert "Invalid YAML" in result.stderr
+
+
+def test_cli_missing_config_file_returns_exit_io_error(tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    missing_config = tmp_path / "missing.yml"
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(tmp_path / "out.csv"), "--config", str(missing_config)],
+    )
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert "Config file not found" in result.stderr
 
 
 def test_cli_config_defaults_mapping(tmp_path):
