@@ -420,6 +420,76 @@ def test_cli_excel_without_extra_shows_install_hint(monkeypatch):
     assert 'pip install "cleanmydata[excel]"' in result.stderr
 
 
+def test_cli_recipe_applied_as_defaults(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    recipe_path = tmp_path / "recipe.yml"
+    recipe_path.write_text(
+        "name: Demo\noutliers: cap\nnormalize_cols: true\nclean_text: true\n", encoding="utf-8"
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [str(input_path), "--output", str(output_path), "--recipe", str(recipe_path)],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] == "cap"
+    assert captured["normalize_cols"] is True
+    assert captured["clean_text"] is True
+
+
+def test_cli_recipe_precedence(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    recipe_path = tmp_path / "recipe.yml"
+    recipe_path.write_text("name: R\noutliers: cap\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("outliers: remove\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    env = os.environ.copy()
+    env["CLEANMYDATA_OUTLIERS"] = "cap"
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+            "--recipe",
+            str(recipe_path),
+            "--outliers",
+            "remove",
+        ],
+        env=env,
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] == "remove"
+
+
 def test_appcontext_create_defaults():
     ctx = AppContext.create()
     assert ctx.mode == "normal"

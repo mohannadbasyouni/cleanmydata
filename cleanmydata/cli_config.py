@@ -133,11 +133,18 @@ class CLIConfig(BaseModel):
         cli_args: Mapping[str, Any],
         config_path: str | Path | None = None,
         environ: Mapping[str, str] | None = None,
+        recipe_path: str | Path | None = None,
     ) -> CLIConfig:
         """
-        Merge config from YAML, environment, then CLI, respecting precedence.
+        Merge config from recipe, YAML, environment, then CLI, respecting precedence.
         """
         merged: dict[str, Any] = {}
+
+        if recipe_path:
+            from cleanmydata.recipes import load_recipe
+
+            recipe = load_recipe(Path(recipe_path))
+            merged.update(recipe.cleaning_options())
 
         if config_path:
             merged.update(cls._load_yaml_config(config_path))
