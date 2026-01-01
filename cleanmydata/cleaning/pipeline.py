@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import re
 import time
 import unicodedata
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -39,9 +43,9 @@ logger = get_logger(__name__)
 
 
 def _safe_emit(
-    emit_fn,
+    emit_fn: Callable[[str, float | int, list[str]], Any],
     name: str,
-    value: float,
+    value: float | int,
     tags: list[str],
 ) -> None:
     try:
@@ -84,19 +88,19 @@ def _build_metric_tags(
 
 
 def clean_data(
-    df,
+    df: pd.DataFrame,
     *,
-    outliers="cap",
-    normalize_cols=True,
-    clean_text=True,
-    categorical_mapping=None,
-    auto_outlier_detect=True,
-    verbose=False,
-    log=False,
-    dataset_name=None,
+    outliers: str | None = "cap",
+    normalize_cols: bool = True,
+    clean_text: bool = True,
+    categorical_mapping: Mapping[str, Mapping[str, str]] | None = None,
+    auto_outlier_detect: bool = True,
+    verbose: bool = False,
+    log: bool = False,
+    dataset_name: str | None = None,
     metrics_client: MetricsClient | None = None,
     excel_used: bool | None = None,
-):
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     Master cleaning pipeline: sequentially applies cleaning operations to the input DataFrame.
     Structured logs are always emitted via structlog; the 'log' flag is kept for
@@ -412,13 +416,13 @@ def clean_data(
 
 
 def remove_duplicates(
-    df,
-    subset=None,
-    keep="first",
-    verbose=False,
-    normalize_text=False,
-    return_report=False,
-):
+    df: pd.DataFrame,
+    subset: Sequence[str] | None = None,
+    keep: str = "first",
+    verbose: bool = False,
+    normalize_text: bool = False,
+    return_report: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Removes duplicate rows from a DataFrame."""
 
     if df.empty:
@@ -446,7 +450,7 @@ def remove_duplicates(
 # ------------------- NORMALIZE COLUMN NAMES ------------------- #
 
 
-def normalize_column_names(df, verbose=False):
+def normalize_column_names(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     cols = pd.Index(df.columns)
     col_strings = pd.Series(cols, dtype="object").map(lambda c: "" if c is None else str(c))
     normalized = (
@@ -479,7 +483,12 @@ def normalize_column_names(df, verbose=False):
 # ------------------- TEXT CLEANING ------------------- #
 
 
-def clean_text_columns(df, lowercase=True, verbose=False, categorical_mapping=None):
+def clean_text_columns(
+    df: pd.DataFrame,
+    lowercase: bool = True,
+    verbose: bool = False,
+    categorical_mapping: Mapping[str, Mapping[str, str]] | None = None,
+) -> pd.DataFrame:
     def normalize_unicode(s):
         return unicodedata.normalize("NFKC", s) if isinstance(s, str) else s
 
@@ -503,7 +512,11 @@ def clean_text_columns(df, lowercase=True, verbose=False, categorical_mapping=No
 # ------------------- CATEGORICAL NORMALIZATION ------------------- #
 
 
-def normalize_categorical_text(df, mapping=None, verbose=False):
+def normalize_categorical_text(
+    df: pd.DataFrame,
+    mapping: Mapping[str, Mapping[str, str]] | None = None,
+    verbose: bool = False,
+) -> pd.DataFrame:
     """Normalize categorical values based on a provided mapping dictionary."""
 
     if mapping is None:
@@ -545,7 +558,7 @@ NUMERIC_KEYWORDS = [
 # ---------- STANDARDIZE FORMATS ----------
 
 
-def standardize_formats(df, verbose=False):
+def standardize_formats(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     for col in df.columns:
         if df[col].dtype not in ["object", "string"]:
             continue
@@ -589,7 +602,12 @@ def standardize_formats(df, verbose=False):
 # ------------------- OUTLIER HANDLING ------------------- #
 
 
-def handle_outliers(df, method="cap", auto_detect=True, verbose=False):
+def handle_outliers(
+    df: pd.DataFrame,
+    method: str = "cap",
+    auto_detect: bool = True,
+    verbose: bool = False,
+) -> pd.DataFrame:
     """
     Handles outliers in numeric columns using IQR or Z-score detection.
     Can auto-switch based on column skewness.
@@ -642,7 +660,12 @@ def handle_outliers(df, method="cap", auto_detect=True, verbose=False):
 # ------------------- FILL MISSING VALUES ------------------- #
 
 
-def fill_missing_values(df, verbose=False, numeric_strategy="auto", datetime_strategy="median"):
+def fill_missing_values(
+    df: pd.DataFrame,
+    verbose: bool = False,
+    numeric_strategy: str = "auto",
+    datetime_strategy: str = "median",
+) -> pd.DataFrame:
     """
     Fill missing values intelligently by column dtype:
       • Numeric     → mean/median (auto-detects skewness if numeric_strategy='auto')
