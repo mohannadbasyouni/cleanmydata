@@ -10,7 +10,7 @@
 ### clean
 
 - **Syntax:** `cleanmydata clean [OPTIONS] [PATH]`
-- **Description:** Reads the dataset at `PATH` (defaulting to `.csv` if no extension is supplied) and writes a cleaned CSV file. Supported input formats include `.csv`, `.xlsx`, `.xlsm`, and `.parquet` (Excel/parquet support requires the optional extras `cleanmydata[excel]` or `cleanmydata[parquet]` via editable install commands such as `pip install -e ".[cli,excel]"`). The CLI always emits CSV output, so prefer `.csv` extensions for `--output` paths.
+- **Description:** Reads the dataset at `PATH` (defaulting to `.csv` if no extension is supplied) and writes a cleaned file. Supported input/output formats include `.csv`, `.xlsx`, `.xlsm`, and `.parquet` (Excel/parquet support requires the optional extras `cleanmydata[excel]` or `cleanmydata[parquet]`). The CLI preserves the input format by default but can convert formats via the `--output` option.
 - **Options:**
   - `--output`, `-o <FILE>` – Explicit output path (defaults to `data/<input_name>_cleaned.<ext>`).
   - `--config`, `-c <FILE>` – YAML file that supplies CLI options (see Config precedence).
@@ -73,14 +73,15 @@ The highest-priority source overrides earlier ones.
 | Code | Meaning | Example |
 | --- | --- | --- |
 | `0` | Success | Clean completed, output written to disk. |
-| `1` | General error | Empty dataset, missing dependencies (e.g., Excel extra not installed), or failed to load file. |
-| `2` | Invalid input | CLI validation failure, schema validation errors, or recipe/config parsing issues. |
+| `1` | General error | Empty dataset or unexpected internal errors. |
+| `2` | Invalid input | CLI validation failure, missing dependencies (e.g. Excel extra), schema validation errors, or recipe/config parsing issues. |
 | `3` | I/O error | Input/config/recipe file not found or unreadable. |
 
 ## Examples
 
 - **CSV clean:** `cleanmydata clean data/messy_data_10k.csv` (writes `data/messy_data_10k_cleaned.csv`).
-- **Excel clean:** `cleanmydata clean data/messy_data_10k.xlsx` (requires `pip install -e ".[cli,excel]"` for Excel support; output is still CSV, so `data/messy_data_10k_cleaned.csv` is created).
-- **Parquet clean:** `cleanmydata clean data/messy_data_10k.parquet` (requires `pip install -e ".[cli,parquet]"` for Parquet support; output is saved as CSV, e.g. `data/messy_data_10k_cleaned.csv`).
+- **Excel clean:** `cleanmydata clean data/messy_data_10k.xlsx` (requires `cleanmydata[excel]`; writes `data/messy_data_10k_cleaned.xlsx` by default).
+- **Parquet clean:** `cleanmydata clean data/messy_data_10k.parquet` (requires `cleanmydata[parquet]`; writes `data/messy_data_10k_cleaned.parquet` by default).
+- **Format conversion:** `cleanmydata clean data/data.csv --output data/data.parquet` (converts CSV to Parquet).
 - **Recipe usage:** `cleanmydata clean --recipe recipes/daily-clean.yaml data/daily.csv` (recipe-provided defaults merge before CLI overrides).
 -- **Schema failure example:** `cleanmydata clean --schema schema/mismatch.yaml data/messy_data_10k.csv` (runs schema validation after loading; exits with `2` on failure).

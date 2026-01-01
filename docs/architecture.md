@@ -22,7 +22,7 @@ Typer-based CLI entrypoint. Responsibilities:
 - Read input via `utils.io.read_data(...)`.
 - Optionally validate input data with `validation.schema.validate_df_with_yaml(...)`.
 - Invoke the core cleaning pipeline `clean.clean_data(...)`.
-- Write output (currently via `DataFrame.to_csv(...)` in the CLI path).
+- Write output via `utils.io.write_data(...)` (supports CSV, Excel, Parquet).
 - Map exceptions to stable exit codes (via `context.map_exception_to_exit_code(...)`).
 
 ### `cleanmydata/cli_config.py`
@@ -99,8 +99,7 @@ Concretely:
 5. If `--schema` is provided, `validation.schema.validate_df_with_yaml(...)` validates the input
    `DataFrame` against a YAML schema (requires `cleanmydata[schema]`).
 6. `clean.clean_data(...)` performs the cleaning pipeline and returns `(cleaned_df, summary)`.
-7. The CLI writes the cleaned data (the CLI path currently writes CSV via `DataFrame.to_csv(...)`;
-   the library `utils.io.write_data(...)` supports CSV/Excel/Parquet).
+7. The CLI writes the cleaned data via `utils.io.write_data(...)`.
 
 ## Optional dependency strategy
 
