@@ -404,6 +404,9 @@ def test_cli_exit_2_on_excel_missing_dep(monkeypatch):
     result = CliRunner().invoke(cli_module.app, ["data.xlsx", "--output", "out.csv"])
 
     assert result.exit_code == EXIT_INVALID_INPUT
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
     assert 'pip install "cleanmydata[excel]"' in result.stderr
 
 
@@ -431,6 +434,9 @@ def test_cli_excel_without_extra_shows_install_hint(monkeypatch):
     result = CliRunner().invoke(cli_module.app, ["input.xlsx", "--output", "out.csv"])
 
     assert result.exit_code == EXIT_INVALID_INPUT
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
     assert 'pip install "cleanmydata[excel]"' in result.stderr
 
 

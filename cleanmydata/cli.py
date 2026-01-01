@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 from pydantic import ValidationError as PydanticValidationError
@@ -13,9 +14,6 @@ from typer.core import TyperGroup
 from cleanmydata.cleaning import clean_data
 from cleanmydata.cli_config import CLIConfig
 from cleanmydata.constants import (
-    EXIT_GENERAL_ERROR,
-    EXIT_INVALID_INPUT,
-    EXIT_IO_ERROR,
     EXIT_SUCCESS,
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
@@ -66,10 +64,64 @@ def _format_error_message(error: Exception | str) -> str:
     return str(error)
 
 
-def _emit_error(ctx: AppContext | None, error: Exception | str) -> None:
+def _split_dependency_error_and_hint(message: str) -> tuple[str, str | None]:
+    """
+    Split a dependency error message into a primary line and an optional hint line.
+
+    Example:
+      "X. Install with: pip install 'cleanmydata[excel]'" ->
+        ("X.", "pip install 'cleanmydata[excel]'")
+    """
+    marker = "Install with:"
+    if marker not in message:
+        return message, None
+    before, after = message.split(marker, 1)
+    primary = before.strip().rstrip(".") + "."
+    hint = after.strip()
+    return primary, hint or None
+
+
+def _emit_error(ctx: AppContext | None, error: Exception | str, *, hint: str | None = None) -> None:
     message = _format_error_message(error)
+    derived_hint = hint
+    if derived_hint is None:
+        # Support both DependencyError instances and wrapped strings like
+        # "Error loading dataset: ... Install with: pip install ..."
+        message, derived_hint = _split_dependency_error_and_hint(message)
+    if derived_hint is None and isinstance(error, FileNotFoundError):
+        derived_hint = "Check that the path exists and is readable."
+
     console = ctx.get_console(stderr=True) if ctx else AppContext.create().get_console(stderr=True)
     console.print(f"Error: {message}", soft_wrap=False, overflow="ignore", no_wrap=True)
+    if derived_hint:
+        console.print(f"Hint: {derived_hint}", soft_wrap=False, overflow="ignore", no_wrap=True)
+
+
+def _cli_exit(code: int, *, exc: Exception | None = None) -> NoReturn:
+    if exc is None:
+        raise typer.Exit(code=code)
+    raise typer.Exit(code=code) from exc
+
+
+def _cli_fail(
+    ctx: AppContext | None,
+    *,
+    error: Exception | str,
+    exc_for_code: Exception | None = None,
+    hint: str | None = None,
+) -> NoReturn:
+    _emit_error(ctx, error, hint=hint)
+    code_exc: Exception
+    if exc_for_code is not None:
+        code_exc = exc_for_code
+    elif isinstance(error, Exception):
+        code_exc = error
+    else:
+        code_exc = RuntimeError(str(error))
+    _cli_exit(
+        map_exception_to_exit_code(code_exc),
+        exc=exc_for_code or (error if isinstance(error, Exception) else None),
+    )
 
 
 @app.command()
@@ -151,12 +203,8 @@ def clean(
             recipe_path=recipe,
         )
         cleaning_config = cli_config.to_cleaning_config()
-    except FileNotFoundError as exc:
-        _emit_error(base_ctx, exc)
-        raise typer.Exit(code=EXIT_IO_ERROR) from exc
-    except (PydanticValidationError, ValidationError) as exc:
-        _emit_error(base_ctx, exc)
-        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+    except (FileNotFoundError, PydanticValidationError, ValidationError) as exc:
+        _cli_fail(base_ctx, error=exc, exc_for_code=exc)
 
     ctx = AppContext.create(
         quiet=cli_config.quiet,
@@ -165,39 +213,28 @@ def clean(
         log_to_file=cli_config.log,
         config=cleaning_config,
     )
-    quiet_mode = ctx.mode in {"quiet", "silent"}
-    silent_mode = ctx.mode == "silent"
-    configure_logging_json(level="ERROR" if quiet_mode else "INFO")
+    configure_logging_json(level="ERROR" if ctx.quiet_mode else "INFO")
 
     def emit_info(message: str) -> None:
-        if quiet_mode:
+        if ctx.quiet_mode:
             return
         ctx.get_console().print(message, soft_wrap=False, overflow="ignore", no_wrap=True)
 
     try:
         df = read_data(Path(cli_config.path))
     except Exception as exc:
-        _emit_error(ctx, f"Error loading dataset: {exc}")
-        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
+        _cli_fail(ctx, error=f"Error loading dataset: {exc}", exc_for_code=exc)
 
     if df.empty:
-        _emit_error(ctx, "Failed to load dataset or file is empty.")
-        raise typer.Exit(code=EXIT_GENERAL_ERROR)
+        _cli_fail(ctx, error="Failed to load dataset or file is empty.")
 
     if schema:
         try:
             validate_df_with_yaml(df, Path(schema))
-        except FileNotFoundError as exc:
-            _emit_error(ctx, exc)
-            raise typer.Exit(code=EXIT_IO_ERROR) from exc
-        except DependencyError as exc:
-            _emit_error(ctx, exc)
-            raise typer.Exit(code=EXIT_GENERAL_ERROR) from exc
-        except ValidationError as exc:
-            _emit_error(ctx, exc)
-            raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+        except (FileNotFoundError, DependencyError, ValidationError) as exc:
+            _cli_fail(ctx, error=exc, exc_for_code=exc)
 
-    if ctx.verbose and not quiet_mode:
+    if ctx.verbose and not ctx.quiet_mode:
         console = ctx.get_console()
         console.rule("[bold]Original Data Preview[/bold]", style="white")
 
@@ -226,12 +263,10 @@ def clean(
             dataset_name=Path(cli_config.path).name,
         )
     except Exception as exc:
-        _emit_error(ctx, exc)
-        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
 
     if cleaned_df.empty:
-        _emit_error(ctx, "No data cleaned — dataset is empty or invalid.")
-        raise typer.Exit(code=EXIT_GENERAL_ERROR)
+        _cli_fail(ctx, error="No data cleaned — dataset is empty or invalid.")
 
     filename = os.path.basename(cli_config.path)
     name, ext = os.path.splitext(filename)
@@ -244,17 +279,16 @@ def clean(
     try:
         write_data(cleaned_df, output_path)
     except Exception as exc:
-        _emit_error(ctx, f"Error writing cleaned dataset: {exc}")
-        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
+        _cli_fail(ctx, error=f"Error writing cleaned dataset: {exc}", exc_for_code=exc)
 
-    if silent_mode:
-        raise typer.Exit(code=EXIT_SUCCESS)
-    if quiet_mode:
+    if ctx.silent_mode:
+        _cli_exit(EXIT_SUCCESS)
+    if ctx.quiet_mode:
         ctx.get_console().print(str(output_path), soft_wrap=False, overflow="ignore", no_wrap=True)
     else:
         emit_info(f"Cleaned data saved as '{output_path}'")
 
-    raise typer.Exit(code=EXIT_SUCCESS)
+    _cli_exit(EXIT_SUCCESS)
 
 
 @recipe_app.command("validate")
@@ -265,14 +299,12 @@ def recipe_validate(path: Path):
     try:
         recipe = load_recipe(path)
     except FileNotFoundError as exc:
-        _emit_error(ctx, exc)
-        raise typer.Exit(code=EXIT_IO_ERROR) from exc
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
     except (PydanticValidationError, ValidationError) as exc:
-        _emit_error(ctx, exc)
-        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
 
     ctx.get_console().print(f"Recipe valid: {recipe.name}", soft_wrap=False)
-    raise typer.Exit(code=EXIT_SUCCESS)
+    _cli_exit(EXIT_SUCCESS)
 
 
 @recipe_app.command("show")
@@ -283,16 +315,14 @@ def recipe_show(path: Path):
     try:
         recipe = load_recipe(path)
     except FileNotFoundError as exc:
-        _emit_error(ctx, exc)
-        raise typer.Exit(code=EXIT_IO_ERROR) from exc
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
     except (PydanticValidationError, ValidationError) as exc:
-        _emit_error(ctx, exc)
-        raise typer.Exit(code=EXIT_INVALID_INPUT) from exc
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
 
     normalized = recipe.model_dump(exclude_none=True)
     rendered = json.dumps(normalized, sort_keys=True, indent=2)
     ctx.get_console().print(rendered)
-    raise typer.Exit(code=EXIT_SUCCESS)
+    _cli_exit(EXIT_SUCCESS)
 
 
 app.add_typer(recipe_app, name="recipe")

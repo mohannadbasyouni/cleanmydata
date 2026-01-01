@@ -77,6 +77,20 @@ class AppContext:
             )
         return self._console
 
+    @property
+    def quiet_mode(self) -> bool:
+        """
+        True when stdout should be suppressed (except required outputs).
+        """
+        return self.mode in {"quiet", "silent"}
+
+    @property
+    def silent_mode(self) -> bool:
+        """
+        True when all stdout output should be suppressed.
+        """
+        return self.mode == "silent"
+
 
 def map_exception_to_exit_code(exc: Exception) -> int:
     """
