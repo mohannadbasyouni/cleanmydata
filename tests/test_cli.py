@@ -239,6 +239,18 @@ def test_cli_normal_prints_errors_to_stderr():
     assert "Error loading dataset:" in result.stderr
 
 
+def test_cli_empty_input_exits_nonzero_and_prints_error(tmp_path):
+    input_path = tmp_path / "empty.csv"
+    input_path.write_text("name,age\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    result = CliRunner().invoke(app, [str(input_path), "--output", str(output_path)])
+
+    assert result.exit_code == EXIT_GENERAL_ERROR
+    assert "empty" in result.stderr.lower()
+    assert not output_path.exists()
+
+
 @pytest.mark.parametrize("extra_args", [[], ["--quiet"], ["--silent"]])
 def test_cli_errors_only_on_stderr(extra_args):
     result = CliRunner().invoke(app, ["missing.csv", "--output", "out.csv", *extra_args])

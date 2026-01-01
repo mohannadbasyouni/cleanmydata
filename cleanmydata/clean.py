@@ -5,6 +5,8 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
+from cleanmydata.constants import OUTLIER_METHODS
+from cleanmydata.exceptions import InvalidInputError
 from cleanmydata.logging import get_logger
 from cleanmydata.metrics import MetricsClient, default_metric_tags, get_metrics_client
 
@@ -149,6 +151,11 @@ def clean_data(
         excel_used=derived_excel_used,
     )
 
+    if outliers not in OUTLIER_METHODS:
+        raise InvalidInputError(
+            f"Invalid outliers value: {outliers!r} (expected one of {OUTLIER_METHODS})"
+        )
+
     if df is None or df.empty:
         elapsed_ms = int((time.perf_counter() - start_perf) * 1000)
         status_tags = base_tags + ["status:failure"]
@@ -163,7 +170,7 @@ def clean_data(
             dataset_name=dataset_name,
             reason="empty_dataframe",
         )
-        return df, summary
+        raise InvalidInputError("Input dataframe is empty.")
 
     try:
         with tracer.trace("cleaning.clean_data", service="cleanmydata") as span:
@@ -440,13 +447,16 @@ def remove_duplicates(
 
 
 def normalize_column_names(df, verbose=False):
-    df.columns = (
-        df.columns.str.strip()
+    cols = pd.Index(df.columns)
+    col_strings = pd.Series(cols, dtype="object").map(lambda c: "" if c is None else str(c))
+    normalized = (
+        col_strings.str.strip()
         .str.lower()
         .str.replace(r"[^0-9a-zA-Z_]+", "_", regex=True)
         .str.replace(r"_+", "_", regex=True)
         .str.strip("_")
     )
+    df.columns = pd.Index(normalized.tolist())
 
     seen, new_cols = {}, []
     for col in df.columns:
