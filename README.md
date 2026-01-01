@@ -1,7 +1,7 @@
 # CleanMyData
 
 ## Project overview
-CleanMyData is a CLI-first data cleaning tool that turns messy CSV, Excel, or Parquet tables into standardized datasets with sensible defaults and optional presets. It is aimed at data engineers and analysts who want repeatable cleanup workflows without writing boilerplate pandas code. CleanMyData always supports CSV input/output out of the box; install `cleanmydata[excel]` to add `.xlsx`/`.xlsm` support and `cleanmydata[parquet]` to add `.parquet` handling.
+CleanMyData is a CLI-first data cleaning tool that turns messy CSV, Excel, or Parquet tables into standardized datasets with sensible defaults and optional presets. It is aimed at data engineers and analysts who want repeatable cleanup workflows without writing boilerplate pandas code. CleanMyData supports CSV, Excel (`.xlsx`/`.xlsm`), and Parquet (`.parquet`) for both input and output.
 
 ## Installation
 
@@ -31,12 +31,12 @@ Clean a CSV with the default settings:
 cleanmydata clean data/messy_data_10k.csv
 ```
 
-By default the CLI writes to `data/<input_name>_cleaned.csv` and prints status messages. Pass `--output` (or `-o`) to write to a different path; the CLI always emits CSV, so prefer `.csv` output files even if the input was Excel or Parquet. Input files may still be `.csv`, `.xlsx`, `.xlsm`, or `.parquet` (Excel/parquet support requires the corresponding extras). The library itself exposes `utils.io.write_data(...)`, which supports CSV, Excel, and Parquet output formats, but the CLI path currently calls `DataFrame.to_csv(...)` so scripts relying on multi-format output should call `write_data` directly.
+By default the CLI writes to `data/<input_name>_cleaned.<ext>` (preserving the input format) and prints status messages. Pass `--output` (or `-o`) to write to a different path or change the format (e.g., convert CSV to Parquet). Input files may be `.csv`, `.xlsx`, `.xlsm`, or `.parquet` (Excel/parquet support requires the corresponding extras).
 
 - Quiet mode (`--quiet`) suppresses progress/info output but still prints the final path when the job succeeds.
 - Silent mode (`--silent`) suppresses all stdout (only errors appear on stderr), making it easy to script around exit codes.
 
-CleanMyData uses exit codes to signal outcomes: `0` for success, `1` for general errors (missing dependencies, empty datasets, etc.), `2` for validation issues, and `3` for I/O failures such as missing files or unreadable configs.
+CleanMyData uses exit codes to signal outcomes: `0` for success, `1` for general errors, `2` for invalid input (including missing dependencies and validation issues), and `3` for I/O failures.
 
 ## Recipes (YAML)
 Recipes are YAML-based cleaning presets that provide defaults for the CLI's cleaning options (`outliers`, `normalize_cols`, `clean_text`, `auto_outlier_detect`, and `categorical_mapping`). Recipes let teams capture standard behavior and reuse it across runs.
@@ -90,9 +90,13 @@ columns:
 Validation runs immediately after the CSV/Excel/Parquet file loads and aborts with exit code `2` on failures.
 
 ## Documentation
-- [CLI reference](docs/cli.md)
-- [Architecture overview](docs/architecture.md)
-- [Extending CleanMyData](docs/extending.md)
+- [Installation](docs/install.md)
+- [Quickstart](docs/quickstart.md)
+- [Configuration](docs/config.md)
+- [Supported Formats](docs/formats.md)
+- [CLI Reference](docs/cli.md)
+- [Contributing](docs/contributing.md)
+- [Architecture Overview](docs/architecture.md)
 
 ## Troubleshooting
 - If the CLI mentions `Excel support is not installed` or `Parquet support is not installed`, rerun pip with `pip install -e ".[cli,excel]"` or `pip install -e ".[cli,parquet]"` (or install the library-only extras if you do not need the CLI). Schema errors prompt `pip install -e ".[cli,schema]"`.
