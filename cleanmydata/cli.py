@@ -22,7 +22,7 @@ from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import DependencyError, ValidationError
 from cleanmydata.logging import configure_logging_json
 from cleanmydata.recipes import load_recipe
-from cleanmydata.utils.io import read_data
+from cleanmydata.utils.io import read_data, write_data
 from cleanmydata.validation.schema import validate_df_with_yaml
 
 
@@ -241,7 +241,11 @@ def clean(
     output_dir = output_path.parent if output_path.parent.as_posix() else Path(".")
     os.makedirs(output_dir, exist_ok=True)
 
-    cleaned_df.to_csv(output_path, index=False)
+    try:
+        write_data(cleaned_df, output_path)
+    except Exception as exc:
+        _emit_error(ctx, f"Error writing cleaned dataset: {exc}")
+        raise typer.Exit(code=map_exception_to_exit_code(exc)) from exc
 
     if silent_mode:
         raise typer.Exit(code=EXIT_SUCCESS)

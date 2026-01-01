@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import builtins
 import os
 import tempfile
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("typer")
@@ -415,6 +417,58 @@ def test_cli_excel_without_extra_shows_install_hint(monkeypatch):
     monkeypatch.setattr(cli_module, "read_data", boom)
 
     result = CliRunner().invoke(cli_module.app, ["input.xlsx", "--output", "out.csv"])
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert 'pip install "cleanmydata[excel]"' in result.stderr
+
+
+def test_cli_default_output_matches_input_extension_parquet():
+    pytest.importorskip("pyarrow")
+    runner = CliRunner()
+
+    with runner.isolated_filesystem():
+        input_path = Path("sample.parquet")
+        pd.DataFrame({"value": [1, 2]}).to_parquet(input_path, engine="pyarrow")
+
+        result = runner.invoke(app, [str(input_path)])
+
+        expected_output = Path("data") / "sample_cleaned.parquet"
+        assert result.exit_code == EXIT_SUCCESS
+        assert expected_output.exists()
+        assert "sample_cleaned.parquet" in result.stdout
+
+
+def test_cli_force_csv_output_from_parquet_input():
+    pytest.importorskip("pyarrow")
+    runner = CliRunner()
+
+    with runner.isolated_filesystem():
+        input_path = Path("source.parquet")
+        pd.DataFrame({"value": [1]}).to_parquet(input_path, engine="pyarrow")
+        output_name = "forced.csv"
+
+        result = runner.invoke(app, [str(input_path), "--output", output_name])
+
+        assert result.exit_code == EXIT_SUCCESS
+        assert Path(output_name).exists()
+        assert "forced.csv" in result.stdout
+
+
+def test_cli_writes_excel_output_without_dependency(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.xlsx"
+
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "openpyxl":
+            raise ImportError("No openpyxl")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    result = CliRunner().invoke(app, [str(input_path), "--output", str(output_path)])
 
     assert result.exit_code == EXIT_INVALID_INPUT
     assert 'pip install "cleanmydata[excel]"' in result.stderr
