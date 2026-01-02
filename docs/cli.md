@@ -30,7 +30,25 @@
   - **Quiet:** Suppresses status/progress output but still prints the resulting file path.
   - **Silent:** Suppresses all stdout output; only errors are emitted to stderr.
 
-- **When schema validation runs:** Validation occurs immediately after loading the dataset and before any cleaning actions. The process aborts with exit code `2` on validation failures, `1` when dependencies are missing, and `3` if the schema file cannot be read.
+- **When schema validation runs:** Validation occurs immediately after loading the dataset and before any cleaning actions.
+
+#### Schema contract (reality-first)
+
+- **Supported schema file format**: YAML (loaded via `yaml.safe_load`).
+- **Schema shape**:
+  - Top-level mapping with optional `name` and required `columns` mapping.
+  - `columns.<col_name>` supports: `dtype` (`int|float|str|bool|datetime`), `nullable` (default false), `required` (default true), and optional `checks` list.
+  - Supported checks: `in_range` (`min`/`max`, numeric dtypes only), `isin` (list), `regex` (string dtype only).
+- **CLI surface**: `cleanmydata clean --schema PATH` (also available via `cleanmydata recipe load ... --schema PATH`).
+- **UX contract**:
+  - Errors are printed to stderr as `Error: ...` with an optional `Hint: ...` line.
+  - Exit codes are determined by the centralized mapping in `cleanmydata.context.map_exception_to_exit_code(...)`.
+- **Failure modes**:
+  - **Missing optional dependency (`pandera`)**: exit code `2` with an install hint (`pip install "cleanmydata[schema]"`).
+  - **Schema file missing/unreadable**: exit code `3` (`FileNotFoundError`), with a path hint.
+  - **Invalid YAML**: exit code `2` (`ValidationError`) with `Invalid YAML in schema file: ...`.
+  - **Invalid schema structure**: exit code `2` (`ValidationError`) with either `Schema file must contain a top-level mapping` or a pydantic-derived `Invalid input: ...` message.
+  - **Data does not match schema**: exit code `2` with `Schema validation failed: ...` including a short summary of failure cases.
 
 ### recipe group
 
@@ -84,4 +102,4 @@ The highest-priority source overrides earlier ones.
 - **Parquet clean:** `cleanmydata clean data/messy_data_10k.parquet` (requires `cleanmydata[parquet]`; writes `data/messy_data_10k_cleaned.parquet` by default).
 - **Format conversion:** `cleanmydata clean data/data.csv --output data/data.parquet` (converts CSV to Parquet).
 - **Recipe usage:** `cleanmydata clean --recipe recipes/daily-clean.yaml data/daily.csv` (recipe-provided defaults merge before CLI overrides).
--- **Schema failure example:** `cleanmydata clean --schema schema/mismatch.yaml data/messy_data_10k.csv` (runs schema validation after loading; exits with `2` on failure).
+- **Schema failure example:** `cleanmydata clean --schema schema/mismatch.yaml data/messy_data_10k.csv` (runs schema validation after loading; exits with `2` on failure).

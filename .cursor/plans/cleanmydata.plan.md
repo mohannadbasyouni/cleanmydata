@@ -2930,179 +2930,63 @@ def load_recipe(path: Path) -> CleaningConfig:
 
 
 
-## Phase 9.3 – Schema validation (pandera extra)
+## Phase 9.3 – Schema validation (reality-first contract lock)
 
 
 
 ### Cursor Execution Prompt
 
-
-
 ```
-
-
-
-
-## Task: Add Optional Schema Validation with Pandera (PR 9.3)
-
-
+## Task: Phase 9.3 – Schema Validation (Reality-First Contract Lock)
 
 ### Goal
+Keep the existing richer schema validation system as the source of truth, and make the plan/tests/docs match it.
+This phase is contract definition + alignment, not redesign.
 
-Add optional schema validation support without polluting core dependencies.
+### What already exists (source of truth)
+- `cleanmydata/validation/schema.py`
+  - YAML schema parsing via `yaml.safe_load`.
+  - Schema spec validation via pydantic models (`SchemaSpec`, `ColumnSpec`, `CheckSpec`) with `extra="forbid"`.
+  - `load_schema(path) -> pandera.DataFrameSchema`
+  - `validate_df(df, schema)` and `validate_df_with_yaml(df, schema_path)`
+  - Optional dependency guard: missing `pandera` raises `DependencyError` with an `Install with:` hint.
+  - Schema mismatch errors raise `ValidationError` with a bounded failure summary.
+- CLI integration
+  - `cleanmydata/cli.py` exposes `--schema PATH` and runs schema validation immediately after loading the dataset and before cleaning.
+  - Errors use the CLI format: `Error: ...` + optional `Hint: ...`.
+  - Exit codes are mapped centrally via `cleanmydata.context.map_exception_to_exit_code(...)`.
+
+### Official contract (lock this behavior)
+- Supported schema file format: YAML.
+- CLI surface: `cleanmydata clean --schema PATH` (also routed through `cleanmydata recipe load ... --schema PATH`).
+- Ordering:
+  - If `pandera` is missing, schema validation fails with `DependencyError` before schema file parsing/validation.
+- Error handling:
+  - Missing schema file (`FileNotFoundError`): exit `3`, with a path hint.
+  - Invalid YAML: exit `2`, message includes `Invalid YAML in schema file: ...`.
+  - Invalid schema structure (not a mapping or pydantic validation errors): exit `2`.
+  - Data does not match schema: exit `2`, message starts with `Schema validation failed: ...` with a short summary.
 
 ### Scope
-
-Files allowed to create:
-
-- `cleanmydata/validation/schema.py` (new)
-
 Files allowed to modify:
-
-- `pyproject.toml`
-- `cleanmydata/validation/__init__.py`
-- `tests/test_validation.py` (new)
-
-
-
-### Requirements
-
-**Add to pyproject.toml:**
-
-```toml
-
-schema = [
-
-    "pandera>=0.18.0",
-
-]
-
-```
-
-**Create cleanmydata/validation/schema.py:**
-
-```python
-
-"""Optional schema validation using pandera."""
-
-
-
-from cleanmydata.exceptions import DependencyError
-
-
-
-def validate_schema(df, schema):
-
-    """
-
-    Validate DataFrame against a pandera schema.
-
-
-
-    Args:
-
-        df: DataFrame to validate
-
-        schema: pandera DataFrameSchema
-
-
-
-    Returns:
-
-        ValidationResult with errors/warnings
-
-
-
-    Raises:
-
-        DependencyError: If pandera not installed
-
-    """
-
-    try:
-
-        import pandera as pa
-
-    except ImportError as e:
-
-        raise DependencyError(
-
-            'Schema validation requires pandera. Install with: pip install "cleanmydata[schema]"'
-
-        ) from e
-
-
-
-    from cleanmydata.models import ValidationResult
-
-
-
-    result = ValidationResult()
-
-    try:
-
-        schema.validate(df, lazy=True)
-
-    except pa.errors.SchemaErrors as err:
-
-        for failure in err.failure_cases.itertuples():
-
-            result.add_error(f"{failure.column}: {failure.check}")
-
-
-
-    return result
-
-
-
-def check_schema_available() -> bool:
-
-    """Check if pandera is available."""
-
-    try:
-
-        import pandera  # noqa: F401
-
-        return True
-
-    except ImportError:
-
-        return False
-
-```
-
-
-
-### Tests Required
-
-1. `test_schema_validation_missing_dep` — raises DependencyError without pandera
-2. `test_check_schema_available` — returns False when pandera missing
-
-
-
-### Constraints
-
-- Do NOT add pandera to core dependencies
-- Schema validation is opt-in only
-- DependencyError includes install command
-
-
+- `tests/test_validation.py`
+- `tests/test_cli.py`
+- `docs/cli.md`
+- `.cursor/plans/cleanmydata.plan.md` (this section only)
+
+### Rationale
+The current schema validation is already richer than the original plan’s minimal sketch: it uses a strict, explicit schema spec + bounded error messages + CLI/exit-code integration.
+Locking the existing approach prevents future drift and preserves the current user-facing contract without redesigning the system.
 
 ### Definition of Done
-
-- schema extra defined in pyproject.toml
-- validation/schema.py exists
-- DependencyError handling works
-- Tests pass
-```javascript
-
-
-
-### Notes
-
-- Dependency: Phase 4.1 (creates validation/ directory)
-
-- Minimal implementation; full integration is future work
+- Tests encode the contract for:
+  - happy path schema validation (when `pandera` is installed)
+  - schema mismatch failures include a structured summary
+  - missing `pandera` shows an install hint and uses the correct exit code
+  - invalid YAML/structure errors are handled cleanly
+  - CLI `--schema` integration behavior is covered
+- Docs contain a concise “Schema contract” section that matches reality.
+```
 
 
 

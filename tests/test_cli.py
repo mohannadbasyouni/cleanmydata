@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import importlib.util
 import os
 import tempfile
 from pathlib import Path
@@ -31,6 +32,8 @@ from cleanmydata.constants import (
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import DependencyError, ValidationError
+
+PANDERA_AVAILABLE = importlib.util.find_spec("pandera") is not None
 
 
 def _create_sample_csv() -> Path:
@@ -493,6 +496,7 @@ def test_cli_writes_excel_output_without_dependency(monkeypatch, tmp_path):
 
 
 def test_cli_schema_validation_failure_returns_exit_invalid_input(tmp_path):
+    pytest.importorskip("pandera")
     input_path = tmp_path / "input.csv"
     input_path.write_text("age,name\n200,Alice\n", encoding="utf-8")
     output_path = tmp_path / "out.csv"
@@ -522,13 +526,87 @@ def test_cli_schema_validation_failure_returns_exit_invalid_input(tmp_path):
     assert "Schema validation failed" in result.stderr
 
 
+def test_cli_schema_missing_pandera_shows_install_hint(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "schema.yml"
+    schema_path.write_text("columns:\n  age:\n    dtype: int\n", encoding="utf-8")
+
+    original_import = schema_module.importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pandera":
+            raise ImportError("pandera missing")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(schema_module.importlib, "import_module", fake_import)
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
+    assert 'pip install "cleanmydata[schema]"' in result.stderr
+
+
+def test_cli_schema_invalid_yaml_returns_exit_invalid_input(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "schema.yml"
+    schema_path.write_text(":\n  - bad\n", encoding="utf-8")
+
+    # Ensure we test YAML parsing behavior regardless of pandera installation.
+    monkeypatch.setattr(schema_module, "_require_pandera", lambda: object())
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
+    assert "Invalid YAML in schema file" in result.stderr
+
+
+def test_cli_schema_missing_file_returns_exit_io_error_and_hint(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "missing-schema.yml"
+
+    monkeypatch.setattr(schema_module, "_require_pandera", lambda: object())
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert result.stdout == ""
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
+    assert "Schema file not found:" in result.stderr
+
+
 def test_cli_recipe_applied_as_defaults(tmp_path, monkeypatch):
     input_path = tmp_path / "input.csv"
     input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
     output_path = tmp_path / "out.csv"
     recipe_path = tmp_path / "recipe.yml"
     recipe_path.write_text(
-        "name: Demo\noutliers: cap\nnormalize_cols: true\nclean_text: true\n", encoding="utf-8"
+        "outliers: cap\nnormalize_cols: true\nclean_text: true\n", encoding="utf-8"
     )
 
     captured: dict[str, object] = {}
@@ -556,7 +634,7 @@ def test_cli_recipe_precedence(tmp_path, monkeypatch):
     output_path = tmp_path / "out.csv"
 
     recipe_path = tmp_path / "recipe.yml"
-    recipe_path.write_text("name: R\noutliers: cap\n", encoding="utf-8")
+    recipe_path.write_text("outliers: cap\n", encoding="utf-8")
 
     config_path = tmp_path / "config.yml"
     config_path.write_text("outliers: remove\n", encoding="utf-8")
@@ -590,6 +668,63 @@ def test_cli_recipe_precedence(tmp_path, monkeypatch):
 
     assert result.exit_code == EXIT_SUCCESS
     assert captured["outliers"] == "remove"
+
+
+def test_cli_recipe_save_creates_yaml(tmp_path):
+    recipe_path = tmp_path / "saved_recipe.yml"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "recipe",
+            "save",
+            str(recipe_path),
+            "--outliers",
+            "remove",
+            "--no-normalize-cols",
+            "--no-clean-text",
+            "--no-auto-outlier-detect",
+        ],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert recipe_path.exists()
+
+
+def test_cli_recipe_save_missing_directory_returns_exit_io_error(tmp_path):
+    recipe_path = tmp_path / "missing" / "recipe.yml"
+
+    result = CliRunner().invoke(app, ["recipe", "save", str(recipe_path)])
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
+
+
+def test_cli_recipe_load_applies_recipe(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    recipe_path = tmp_path / "recipe.yml"
+    recipe_path.write_text("outliers: remove\nnormalize_cols: false\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["recipe", "load", str(recipe_path), str(input_path), "--output", str(output_path)],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] == "remove"
+    assert captured["normalize_cols"] is False
 
 
 def test_appcontext_create_defaults():

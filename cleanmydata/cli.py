@@ -13,12 +13,13 @@ from typer.core import TyperGroup
 
 from cleanmydata.cleaning import clean_data
 from cleanmydata.cli_config import CLIConfig
+from cleanmydata.config import CleaningConfig
 from cleanmydata.constants import (
     EXIT_SUCCESS,
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import DependencyError, ValidationError
-from cleanmydata.recipes import load_recipe
+from cleanmydata.recipes import load_recipe, save_recipe
 from cleanmydata.utils.io import read_data, write_data
 from cleanmydata.utils.logging import configure_logging_json
 from cleanmydata.validation.schema import validate_df_with_yaml
@@ -297,13 +298,13 @@ def recipe_validate(path: Path):
 
     ctx = AppContext.create()
     try:
-        recipe = load_recipe(path)
+        load_recipe(path)
     except FileNotFoundError as exc:
         _cli_fail(ctx, error=exc, exc_for_code=exc)
     except (PydanticValidationError, ValidationError) as exc:
         _cli_fail(ctx, error=exc, exc_for_code=exc)
 
-    ctx.get_console().print(f"Recipe valid: {recipe.name}", soft_wrap=False)
+    ctx.get_console().print("Recipe valid", soft_wrap=False)
     _cli_exit(EXIT_SUCCESS)
 
 
@@ -319,10 +320,144 @@ def recipe_show(path: Path):
     except (PydanticValidationError, ValidationError) as exc:
         _cli_fail(ctx, error=exc, exc_for_code=exc)
 
-    normalized = recipe.model_dump(exclude_none=True)
+    normalized = {
+        "outliers": "none" if recipe.outliers is None else recipe.outliers,
+        "normalize_cols": recipe.normalize_cols,
+        "clean_text": recipe.clean_text,
+        "auto_outlier_detect": recipe.auto_outlier_detect,
+    }
     rendered = json.dumps(normalized, sort_keys=True, indent=2)
     ctx.get_console().print(rendered)
     _cli_exit(EXIT_SUCCESS)
+
+
+@recipe_app.command("save")
+def recipe_save(
+    output_yaml: Path = typer.Argument(..., help="Output recipe YAML path"),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help="Optional YAML config file to source defaults from"
+    ),
+    outliers: str | None = typer.Option(
+        None,
+        "--outliers",
+        case_sensitive=False,
+        help="Outlier handling strategy: cap, remove, or none",
+    ),
+    normalize_cols: bool | None = typer.Option(
+        None,
+        "--normalize-cols/--no-normalize-cols",
+        help="Normalize column names (true/false)",
+    ),
+    clean_text: bool | None = typer.Option(
+        None, "--clean-text/--no-clean-text", help="Enable text cleaning"
+    ),
+    auto_outlier_detect: bool | None = typer.Option(
+        None,
+        "--auto-outlier-detect/--no-auto-outlier-detect",
+        help="Automatically detect outliers",
+    ),
+):
+    """Save current config options as a recipe YAML file."""
+    ctx = AppContext.create()
+    allowed_keys = {"outliers", "normalize_cols", "clean_text", "auto_outlier_detect"}
+    merged: dict[str, object] = {}
+
+    try:
+        if config:
+            yaml_data = CLIConfig._load_yaml_config(config)
+            extra = set(yaml_data) - allowed_keys
+            if extra:
+                raise ValidationError(
+                    f"Config file contains unsupported recipe keys: {sorted(extra)}"
+                )
+            merged.update(yaml_data)
+
+        env_data = CLIConfig._load_env_vars(os.environ)
+        merged.update({k: v for k, v in env_data.items() if k in allowed_keys})
+
+        if outliers is not None:
+            merged["outliers"] = CLIConfig._parse_outliers(outliers)
+        if normalize_cols is not None:
+            merged["normalize_cols"] = normalize_cols
+        if clean_text is not None:
+            merged["clean_text"] = clean_text
+        if auto_outlier_detect is not None:
+            merged["auto_outlier_detect"] = auto_outlier_detect
+
+        cleaning_config = CleaningConfig(**merged)
+        save_recipe(cleaning_config, output_yaml)
+    except (FileNotFoundError, IsADirectoryError, ValidationError) as exc:
+        _cli_fail(ctx, error=exc, exc_for_code=exc)
+
+    ctx.get_console().print(str(output_yaml), soft_wrap=False, overflow="ignore", no_wrap=True)
+    _cli_exit(EXIT_SUCCESS)
+
+
+@recipe_app.command("load")
+def recipe_load(
+    recipe_yaml: Path = typer.Argument(..., help="Recipe YAML path"),
+    input_file: Path = typer.Argument(..., help="Input dataset path"),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Output file name (default: original_cleaned.csv)"
+    ),
+    verbose: bool | None = typer.Option(
+        None, "--verbose/--no-verbose", "-v/-V", help="Show detailed cleaning logs"
+    ),
+    quiet: bool | None = typer.Option(
+        None, "--quiet/--no-quiet", help="Suppress info/progress output"
+    ),
+    silent: bool | None = typer.Option(
+        None, "--silent/--no-silent", help="No stdout output (errors still to stderr)"
+    ),
+    log: bool | None = typer.Option(
+        None,
+        "--log/--no-log",
+        help="Deprecated: no-op (structured JSON logs are always emitted to stdout/stderr)",
+    ),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to YAML config file with CLI options"
+    ),
+    schema: Path | None = typer.Option(
+        None,
+        "--schema",
+        help="Path to a YAML schema for validation (requires cleanmydata[schema])",
+    ),
+    outliers: str | None = typer.Option(
+        None,
+        "--outliers",
+        case_sensitive=False,
+        help="Outlier handling strategy: cap, remove, or none",
+    ),
+    normalize_cols: bool | None = typer.Option(
+        None,
+        "--normalize-cols/--no-normalize-cols",
+        help="Normalize column names (true/false)",
+    ),
+    clean_text: bool | None = typer.Option(
+        None, "--clean-text/--no-clean-text", help="Enable text cleaning"
+    ),
+    auto_outlier_detect: bool | None = typer.Option(
+        None,
+        "--auto-outlier-detect/--no-auto-outlier-detect",
+        help="Automatically detect outliers",
+    ),
+):
+    """Apply a recipe to a dataset (equivalent to clean --recipe)."""
+    clean(
+        path=str(input_file),
+        output=output,
+        verbose=verbose,
+        quiet=quiet,
+        silent=silent,
+        log=log,
+        config=config,
+        recipe=recipe_yaml,
+        schema=schema,
+        outliers=outliers,
+        normalize_cols=normalize_cols,
+        clean_text=clean_text,
+        auto_outlier_detect=auto_outlier_detect,
+    )
 
 
 app.add_typer(recipe_app, name="recipe")
