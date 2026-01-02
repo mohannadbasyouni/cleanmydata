@@ -190,24 +190,50 @@ def clean(
         verbose=bool(verbose or False),
         log_to_file=bool(log or False),
     )
+    cli_overrides: dict[str, object] = {}
+    cli_provided_keys: set[str] = set()
+
+    if path is not None:
+        cli_overrides["path"] = path
+        cli_provided_keys.add("path")
+    if output is not None:
+        cli_overrides["output"] = output
+        cli_provided_keys.add("output")
+    if verbose is not None:
+        cli_overrides["verbose"] = verbose
+        cli_provided_keys.add("verbose")
+    if quiet is not None:
+        cli_overrides["quiet"] = quiet
+        cli_provided_keys.add("quiet")
+    if silent is not None:
+        cli_overrides["silent"] = silent
+        cli_provided_keys.add("silent")
+    if log is not None:
+        cli_overrides["log"] = log
+        cli_provided_keys.add("log")
+    if outliers is not None:
+        cli_overrides["outliers"] = CLIConfig._parse_outliers(outliers)
+        cli_provided_keys.add("outliers")
+    if normalize_cols is not None:
+        cli_overrides["normalize_cols"] = normalize_cols
+        cli_provided_keys.add("normalize_cols")
+    if clean_text is not None:
+        cli_overrides["clean_text"] = clean_text
+        cli_provided_keys.add("clean_text")
+    if auto_outlier_detect is not None:
+        cli_overrides["auto_outlier_detect"] = auto_outlier_detect
+        cli_provided_keys.add("auto_outlier_detect")
+    if profile is not None:
+        cli_overrides["profile"] = profile
+        cli_provided_keys.add("profile")
+
     try:
         cli_config = CLIConfig.from_sources(
-            cli_args={
-                "path": path,
-                "output": output,
-                "verbose": verbose,
-                "quiet": quiet,
-                "silent": silent,
-                "log": log,
-                "outliers": CLIConfig._parse_outliers(outliers) if outliers else None,
-                "normalize_cols": normalize_cols,
-                "clean_text": clean_text,
-                "auto_outlier_detect": auto_outlier_detect,
-                "profile": profile,
-            },
+            cli_args=cli_overrides,
             config_path=config,
             environ=os.environ,
             recipe_path=recipe,
+            cli_provided_keys=cli_provided_keys,
         )
         cleaning_config = cli_config.to_cleaning_config()
     except (FileNotFoundError, PydanticValidationError, ValidationError) as exc:
