@@ -13,6 +13,7 @@ import socket
 import time
 from collections.abc import Iterable, Sequence
 from urllib import request
+from urllib.parse import urlparse
 
 from cleanmydata.utils.logging import get_logger
 
@@ -91,6 +92,12 @@ class HttpMetricsClient(MetricsClient):
         tags: Iterable[str] | None,
     ) -> None:
         try:
+            parsed = urlparse(self.endpoint)
+            if parsed.scheme not in {"http", "https"}:
+                raise ValueError(
+                    f"Unsupported metrics endpoint scheme: {parsed.scheme!r}. "
+                    "Only http/https are allowed."
+                )
             payload = {
                 "series": [
                     {
@@ -111,8 +118,10 @@ class HttpMetricsClient(MetricsClient):
                 },
                 method="POST",
             )
-            with request.urlopen(req, timeout=self.timeout):
+            # URL is restricted to http/https by allowlist validation above.
+            with request.urlopen(req, timeout=self.timeout):  # nosec B310
                 pass
+
         except Exception as exc:  # pragma: no cover - best-effort
             logger.debug("http_metrics_emit_failed", error=str(exc))
 

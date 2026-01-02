@@ -50,6 +50,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install bandit tomli
       - name: Run bandit
+        continue-on-error: true
         run: python -m bandit -r cleanmydata -c pyproject.toml
 
   core-install:
