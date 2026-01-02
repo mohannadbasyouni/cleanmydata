@@ -136,11 +136,17 @@ class CLIConfig(BaseModel):
         config_path: str | Path | None = None,
         environ: Mapping[str, str] | None = None,
         recipe_path: str | Path | None = None,
+        cli_provided_keys: set[str] | None = None,
     ) -> CLIConfig:
         """
         Merge config from recipe, YAML, environment, then CLI, respecting precedence.
+
+        When ``cli_provided_keys`` is supplied, only those CLI fields override lower
+        layers, allowing explicit ``None`` values (e.g., ``--outliers none``) to win.
+        Otherwise, ``None`` values from ``cli_args`` are ignored.
         """
         merged: dict[str, Any] = {}
+        cli_args_dict = dict(cli_args)
 
         if recipe_path:
             from cleanmydata.recipes import load_recipe
@@ -162,7 +168,14 @@ class CLIConfig(BaseModel):
         env_values = cls._load_env_vars(environ or {})
         merged.update(env_values)
 
-        cli_overrides = {key: value for key, value in cli_args.items() if value is not None}
+        if cli_provided_keys is None:
+            cli_overrides = {
+                key: value for key, value in cli_args_dict.items() if value is not None
+            }
+        else:
+            cli_overrides = {
+                key: cli_args_dict[key] for key in cli_provided_keys if key in cli_args_dict
+            }
         merged.update(cli_overrides)
 
         return cls.from_cli(**merged)

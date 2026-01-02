@@ -670,6 +670,55 @@ def test_cli_recipe_precedence(tmp_path, monkeypatch):
     assert captured["outliers"] == "remove"
 
 
+def test_cli_precedence_chain_respects_cli_none(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    recipe_path = tmp_path / "recipe.yml"
+    recipe_path.write_text("outliers: remove\nnormalize_cols: false\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        "outliers: cap\nclean_text: true\nnormalize_cols: true\n", encoding="utf-8"
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    env = os.environ.copy()
+    env["CLEANMYDATA_OUTLIERS"] = "remove"
+    env["CLEANMYDATA_CLEAN_TEXT"] = "false"
+    env["CLEANMYDATA_VERBOSE"] = "true"
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        [
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+            "--recipe",
+            str(recipe_path),
+            "--outliers",
+            "none",
+        ],
+        env=env,
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] is None  # CLI explicit none overrides env/yaml/recipe
+    assert captured["clean_text"] is False  # Env overrides YAML default
+    assert captured["normalize_cols"] is True  # YAML overrides recipe default
+    assert captured["verbose"] is True  # Env applied when CLI flag omitted
+
+
 def test_cli_recipe_save_creates_yaml(tmp_path):
     recipe_path = tmp_path / "saved_recipe.yml"
 
