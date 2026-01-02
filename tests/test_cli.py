@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import importlib.util
 import os
 import tempfile
 from pathlib import Path
@@ -31,6 +32,8 @@ from cleanmydata.constants import (
 )
 from cleanmydata.context import AppContext, map_exception_to_exit_code
 from cleanmydata.exceptions import DependencyError, ValidationError
+
+PANDERA_AVAILABLE = importlib.util.find_spec("pandera") is not None
 
 
 def _create_sample_csv() -> Path:
@@ -493,6 +496,7 @@ def test_cli_writes_excel_output_without_dependency(monkeypatch, tmp_path):
 
 
 def test_cli_schema_validation_failure_returns_exit_invalid_input(tmp_path):
+    pytest.importorskip("pandera")
     input_path = tmp_path / "input.csv"
     input_path.write_text("age,name\n200,Alice\n", encoding="utf-8")
     output_path = tmp_path / "out.csv"
@@ -520,6 +524,80 @@ def test_cli_schema_validation_failure_returns_exit_invalid_input(tmp_path):
     assert result.stdout == ""
     assert "Error:" in result.stderr
     assert "Schema validation failed" in result.stderr
+
+
+def test_cli_schema_missing_pandera_shows_install_hint(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "schema.yml"
+    schema_path.write_text("columns:\n  age:\n    dtype: int\n", encoding="utf-8")
+
+    original_import = schema_module.importlib.import_module
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pandera":
+            raise ImportError("pandera missing")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(schema_module.importlib, "import_module", fake_import)
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
+    assert 'pip install "cleanmydata[schema]"' in result.stderr
+
+
+def test_cli_schema_invalid_yaml_returns_exit_invalid_input(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "schema.yml"
+    schema_path.write_text(":\n  - bad\n", encoding="utf-8")
+
+    # Ensure we test YAML parsing behavior regardless of pandera installation.
+    monkeypatch.setattr(schema_module, "_require_pandera", lambda: object())
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_INVALID_INPUT
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
+    assert "Invalid YAML in schema file" in result.stderr
+
+
+def test_cli_schema_missing_file_returns_exit_io_error_and_hint(monkeypatch, tmp_path):
+    import cleanmydata.validation.schema as schema_module
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("age,name\n10,Alice\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+    schema_path = tmp_path / "missing-schema.yml"
+
+    monkeypatch.setattr(schema_module, "_require_pandera", lambda: object())
+
+    result = CliRunner().invoke(
+        app, [str(input_path), "--output", str(output_path), "--schema", str(schema_path)]
+    )
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert result.stdout == ""
+    lines = [line for line in result.stderr.splitlines() if line.strip()]
+    assert lines[0].startswith("Error:")
+    assert any(line.startswith("Hint:") for line in lines)
+    assert "Schema file not found:" in result.stderr
 
 
 def test_cli_recipe_applied_as_defaults(tmp_path, monkeypatch):

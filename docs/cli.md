@@ -10,7 +10,7 @@
 ### clean
 
 - **Syntax:** `cleanmydata clean [OPTIONS] [PATH]`
-- **Description:** Reads the dataset at `PATH` (defaulting to `.csv` if no extension is supplied) and writes a cleaned CSV file. Supported input formats include `.csv`, `.xlsx`, `.xlsm`, and `.parquet` (Excel/parquet support requires the optional extras `cleanmydata[excel]` or `cleanmydata[parquet]` via editable install commands such as `pip install -e ".[cli,excel]"`). The CLI always emits CSV output, so prefer `.csv` extensions for `--output` paths.
+- **Description:** Reads the dataset at `PATH` (defaulting to `.csv` if no extension is supplied) and writes a cleaned dataset to disk. Supported input formats include `.csv`, `.xlsx`, `.xlsm`, and `.parquet` (Excel/parquet support requires the optional extras `cleanmydata[excel]` or `cleanmydata[parquet]`).
 - **Options:**
   - `--output`, `-o <FILE>` – Explicit output path (defaults to `data/<input_name>_cleaned.<ext>`).
   - `--config`, `-c <FILE>` – YAML file that supplies CLI options (see Config precedence).
@@ -30,7 +30,25 @@
   - **Quiet:** Suppresses status/progress output but still prints the resulting file path.
   - **Silent:** Suppresses all stdout output; only errors are emitted to stderr.
 
-- **When schema validation runs:** Validation occurs immediately after loading the dataset and before any cleaning actions. The process aborts with exit code `2` on validation failures, `1` when dependencies are missing, and `3` if the schema file cannot be read.
+- **When schema validation runs:** Validation occurs immediately after loading the dataset and before any cleaning actions.
+
+#### Schema contract (reality-first)
+
+- **Supported schema file format**: YAML (loaded via `yaml.safe_load`).
+- **Schema shape**:
+  - Top-level mapping with optional `name` and required `columns` mapping.
+  - `columns.<col_name>` supports: `dtype` (`int|float|str|bool|datetime`), `nullable` (default false), `required` (default true), and optional `checks` list.
+  - Supported checks: `in_range` (`min`/`max`, numeric dtypes only), `isin` (list), `regex` (string dtype only).
+- **CLI surface**: `cleanmydata clean --schema PATH` (also available via `cleanmydata recipe load ... --schema PATH`).
+- **UX contract**:
+  - Errors are printed to stderr as `Error: ...` with an optional `Hint: ...` line.
+  - Exit codes are determined by the centralized mapping in `cleanmydata.context.map_exception_to_exit_code(...)`.
+- **Failure modes**:
+  - **Missing optional dependency (`pandera`)**: exit code `2` with an install hint (`pip install "cleanmydata[schema]"`).
+  - **Schema file missing/unreadable**: exit code `3` (`FileNotFoundError`), with a path hint.
+  - **Invalid YAML**: exit code `2` (`ValidationError`) with `Invalid YAML in schema file: ...`.
+  - **Invalid schema structure**: exit code `2` (`ValidationError`) with either `Schema file must contain a top-level mapping` or a pydantic-derived `Invalid input: ...` message.
+  - **Data does not match schema**: exit code `2` with `Schema validation failed: ...` including a short summary of failure cases.
 
 ### recipe group
 
@@ -73,14 +91,14 @@ The highest-priority source overrides earlier ones.
 | Code | Meaning | Example |
 | --- | --- | --- |
 | `0` | Success | Clean completed, output written to disk. |
-| `1` | General error | Empty dataset, missing dependencies (e.g., Excel extra not installed), or failed to load file. |
-| `2` | Invalid input | CLI validation failure, schema validation errors, or recipe/config parsing issues. |
+| `1` | General error | Unexpected errors (e.g., empty dataset in the CLI path). |
+| `2` | Invalid input | CLI validation failure, schema validation errors, or missing dependencies (optional extras). |
 | `3` | I/O error | Input/config/recipe file not found or unreadable. |
 
 ## Examples
 
 - **CSV clean:** `cleanmydata clean data/messy_data_10k.csv` (writes `data/messy_data_10k_cleaned.csv`).
-- **Excel clean:** `cleanmydata clean data/messy_data_10k.xlsx` (requires `pip install -e ".[cli,excel]"` for Excel support; output is still CSV, so `data/messy_data_10k_cleaned.csv` is created).
-- **Parquet clean:** `cleanmydata clean data/messy_data_10k.parquet` (requires `pip install -e ".[cli,parquet]"` for Parquet support; output is saved as CSV, e.g. `data/messy_data_10k_cleaned.csv`).
+- **Excel clean:** `cleanmydata clean data/messy_data_10k.xlsx` (requires `cleanmydata[excel]`; default output is `data/messy_data_10k_cleaned.xlsx`).
+- **Parquet clean:** `cleanmydata clean data/messy_data_10k.parquet` (requires `cleanmydata[parquet]`; default output is `data/messy_data_10k_cleaned.parquet`).
 - **Recipe usage:** `cleanmydata clean --recipe recipes/daily-clean.yaml data/daily.csv` (recipe-provided defaults merge before CLI overrides).
--- **Schema failure example:** `cleanmydata clean --schema schema/mismatch.yaml data/messy_data_10k.csv` (runs schema validation after loading; exits with `2` on failure).
+- **Schema failure example:** `cleanmydata clean --schema schema/mismatch.yaml data/messy_data_10k.csv` (runs schema validation after loading; exits with `2` on failure).
