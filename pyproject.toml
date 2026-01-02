@@ -169,3 +169,8 @@ exclude = "(^tests/|/tests/)"
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 ignore_errors = true
+
+[tool.bandit]
+# Phase 6.2: conservative defaults with low noise
+exclude_dirs = ["tests", "build"]
+skips = ["B101"] # assert used heavily in tests; tests are excluded anyway
