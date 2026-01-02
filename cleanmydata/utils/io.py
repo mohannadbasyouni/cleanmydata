@@ -164,6 +164,7 @@ def clean_file(
         categorical_mapping=config.categorical_mapping,
         auto_outlier_detect=config.auto_outlier_detect,
         verbose=config.verbose,
+        profile=config.profile,
     )
 
     # Write cleaned data

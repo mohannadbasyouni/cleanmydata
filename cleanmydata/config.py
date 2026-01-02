@@ -18,6 +18,7 @@ class CleaningConfig:
     categorical_mapping: dict[str, dict[str, str]] | None = None
     auto_outlier_detect: bool = True
     verbose: bool = False
+    profile: bool = False
 
     def validate(self) -> None:
         """

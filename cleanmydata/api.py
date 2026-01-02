@@ -84,6 +84,7 @@ class CleaningOptions(BaseModel):
     auto_outlier_detect: bool = Field(
         default=True, description="Auto-detect outlier method per column"
     )
+    profile: bool = Field(default=False, description="Enable profiling metadata in summary")
 
     @field_validator("outliers")
     @classmethod
@@ -113,6 +114,7 @@ class CleaningSummary(BaseModel):
     columns_standardized: int = 0
     text_unconverted: int = 0
     duration: str = ""
+    profiling: dict[str, Any] | None = None
 
 
 class SuggestionModel(BaseModel):
@@ -260,6 +262,7 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 clean_text=options.clean_text,
                 auto_outlier_detect=options.auto_outlier_detect,
                 verbose=False,
+                profile=options.profile,
             )
 
             # Run the cleaning pipeline
@@ -271,6 +274,7 @@ def run_cleaning_pipeline(job_id: str, df: pd.DataFrame, options: CleaningOption
                 clean_text=config.clean_text,
                 auto_outlier_detect=config.auto_outlier_detect,
                 verbose=config.verbose,
+                profile=config.profile,
                 log=False,
                 dataset_name=dataset_name,
             )
@@ -367,6 +371,7 @@ async def submit_cleaning_job(
     normalize_cols: bool = True,
     clean_text: bool = True,
     auto_outlier_detect: bool = True,
+    profile: bool = False,
 ):
     """
     Submit a data file for cleaning.
@@ -408,6 +413,7 @@ async def submit_cleaning_job(
             normalize_cols=normalize_cols,
             clean_text=clean_text,
             auto_outlier_detect=auto_outlier_detect,
+            profile=profile,
         )
     except PydanticValidationError as exc:
         errors = []
