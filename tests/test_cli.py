@@ -528,7 +528,7 @@ def test_cli_recipe_applied_as_defaults(tmp_path, monkeypatch):
     output_path = tmp_path / "out.csv"
     recipe_path = tmp_path / "recipe.yml"
     recipe_path.write_text(
-        "name: Demo\noutliers: cap\nnormalize_cols: true\nclean_text: true\n", encoding="utf-8"
+        "outliers: cap\nnormalize_cols: true\nclean_text: true\n", encoding="utf-8"
     )
 
     captured: dict[str, object] = {}
@@ -556,7 +556,7 @@ def test_cli_recipe_precedence(tmp_path, monkeypatch):
     output_path = tmp_path / "out.csv"
 
     recipe_path = tmp_path / "recipe.yml"
-    recipe_path.write_text("name: R\noutliers: cap\n", encoding="utf-8")
+    recipe_path.write_text("outliers: cap\n", encoding="utf-8")
 
     config_path = tmp_path / "config.yml"
     config_path.write_text("outliers: remove\n", encoding="utf-8")
@@ -590,6 +590,63 @@ def test_cli_recipe_precedence(tmp_path, monkeypatch):
 
     assert result.exit_code == EXIT_SUCCESS
     assert captured["outliers"] == "remove"
+
+
+def test_cli_recipe_save_creates_yaml(tmp_path):
+    recipe_path = tmp_path / "saved_recipe.yml"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "recipe",
+            "save",
+            str(recipe_path),
+            "--outliers",
+            "remove",
+            "--no-normalize-cols",
+            "--no-clean-text",
+            "--no-auto-outlier-detect",
+        ],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert recipe_path.exists()
+
+
+def test_cli_recipe_save_missing_directory_returns_exit_io_error(tmp_path):
+    recipe_path = tmp_path / "missing" / "recipe.yml"
+
+    result = CliRunner().invoke(app, ["recipe", "save", str(recipe_path)])
+
+    assert result.exit_code == EXIT_IO_ERROR
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
+
+
+def test_cli_recipe_load_applies_recipe(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("name,age\nAlice,30\n", encoding="utf-8")
+    output_path = tmp_path / "out.csv"
+
+    recipe_path = tmp_path / "recipe.yml"
+    recipe_path.write_text("outliers: remove\nnormalize_cols: false\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_clean_data(df, **kwargs):
+        captured.update(kwargs)
+        return df, {}
+
+    monkeypatch.setattr(cli_module, "clean_data", fake_clean_data)
+
+    result = CliRunner().invoke(
+        cli_module.app,
+        ["recipe", "load", str(recipe_path), str(input_path), "--output", str(output_path)],
+    )
+
+    assert result.exit_code == EXIT_SUCCESS
+    assert captured["outliers"] == "remove"
+    assert captured["normalize_cols"] is False
 
 
 def test_appcontext_create_defaults():

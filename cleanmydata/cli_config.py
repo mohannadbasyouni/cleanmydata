@@ -144,7 +144,14 @@ class CLIConfig(BaseModel):
             from cleanmydata.recipes import load_recipe
 
             recipe = load_recipe(Path(recipe_path))
-            merged.update(recipe.cleaning_options())
+            merged.update(
+                {
+                    "outliers": recipe.outliers,
+                    "normalize_cols": recipe.normalize_cols,
+                    "clean_text": recipe.clean_text,
+                    "auto_outlier_detect": recipe.auto_outlier_detect,
+                }
+            )
 
         if config_path:
             merged.update(cls._load_yaml_config(config_path))
