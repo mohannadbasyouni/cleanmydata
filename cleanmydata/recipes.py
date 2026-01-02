@@ -37,6 +37,7 @@ class RecipeYaml(BaseModel):
     normalize_cols: bool | None = None
     clean_text: bool | None = None
     auto_outlier_detect: bool | None = None
+    profile: bool | None = None
 
     @field_validator("outliers", mode="before")
     @classmethod
@@ -58,7 +59,7 @@ class RecipeYaml(BaseModel):
         Uses field-set information so explicit `outliers: none` (normalized to None)
         still overrides CleaningConfig defaults.
         """
-        allowed = {"outliers", "normalize_cols", "clean_text", "auto_outlier_detect"}
+        allowed = {"outliers", "normalize_cols", "clean_text", "auto_outlier_detect", "profile"}
         return {key: getattr(self, key) for key in self.model_fields_set if key in allowed}
 
 

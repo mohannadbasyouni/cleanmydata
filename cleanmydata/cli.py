@@ -177,6 +177,11 @@ def clean(
         "--auto-outlier-detect/--no-auto-outlier-detect",
         help="Automatically detect outliers",
     ),
+    profile: bool | None = typer.Option(
+        None,
+        "--profile/--no-profile",
+        help="Enable lightweight profiling metadata in the returned summary",
+    ),
 ):
     """Clean a messy dataset."""
     base_ctx = AppContext.create(
@@ -198,6 +203,7 @@ def clean(
                 "normalize_cols": normalize_cols,
                 "clean_text": clean_text,
                 "auto_outlier_detect": auto_outlier_detect,
+                "profile": profile,
             },
             config_path=config,
             environ=os.environ,
@@ -260,6 +266,7 @@ def clean(
             categorical_mapping=cleaning_config.categorical_mapping,
             auto_outlier_detect=cleaning_config.auto_outlier_detect,
             verbose=cleaning_config.verbose,
+            profile=cleaning_config.profile,
             log=cli_config.log,
             dataset_name=Path(cli_config.path).name,
         )
@@ -457,6 +464,7 @@ def recipe_load(
         normalize_cols=normalize_cols,
         clean_text=clean_text,
         auto_outlier_detect=auto_outlier_detect,
+        profile=None,
     )
 
 

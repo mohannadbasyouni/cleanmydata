@@ -42,6 +42,7 @@ class CLIConfig(BaseModel):
     clean_text: bool = DEFAULT_CLEAN_TEXT
     auto_outlier_detect: bool = DEFAULT_AUTO_OUTLIER_DETECT
     categorical_mapping: dict[str, dict[str, str]] | None = None
+    profile: bool = False
 
     @field_validator("path")
     @classmethod
@@ -108,6 +109,7 @@ class CLIConfig(BaseModel):
             categorical_mapping=self.categorical_mapping,
             auto_outlier_detect=self.auto_outlier_detect,
             verbose=self.verbose,
+            profile=self.profile,
         )
         try:
             config.validate()
@@ -150,6 +152,7 @@ class CLIConfig(BaseModel):
                     "normalize_cols": recipe.normalize_cols,
                     "clean_text": recipe.clean_text,
                     "auto_outlier_detect": recipe.auto_outlier_detect,
+                    "profile": recipe.profile,
                 }
             )
 
@@ -195,6 +198,7 @@ class CLIConfig(BaseModel):
             "CLEANMYDATA_NORMALIZE_COLS": "normalize_cols",
             "CLEANMYDATA_CLEAN_TEXT": "clean_text",
             "CLEANMYDATA_AUTO_OUTLIER_DETECT": "auto_outlier_detect",
+            "CLEANMYDATA_PROFILE": "profile",
         }
 
         parsed: dict[str, Any] = {}
@@ -211,6 +215,7 @@ class CLIConfig(BaseModel):
                     "normalize_cols",
                     "clean_text",
                     "auto_outlier_detect",
+                    "profile",
                 }:
                     parsed[field_name] = cls._parse_bool(raw_value)
                 elif field_name == "outliers":
