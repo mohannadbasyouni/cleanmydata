@@ -38,6 +38,9 @@ def test_cli_config_invalid_outliers_raises_pydantic_validation_error(tmp_path: 
 
     message = str(exc_info.value).lower()
     assert "outliers" in message
+    assert "cap" in message
+    assert "remove" in message
+    assert "none" in message
 
 
 def test_cli_config_from_sources_precedence_recipe_yaml_env_cli(
@@ -59,6 +62,15 @@ def test_cli_config_from_sources_precedence_recipe_yaml_env_cli(
 
     config_path = tmp_path / "config.yml"
     config_path.write_text("outliers: cap\n", encoding="utf-8")
+
+    # Recipe applies when it's the only source (besides required CLI path).
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "input.csv"},
+        recipe_path=tmp_path / "recipe.yml",
+        config_path=None,
+        environ={},
+    )
+    assert cfg.outliers == "remove"
 
     # YAML overrides recipe.
     cfg = CLIConfig.from_sources(
@@ -86,3 +98,29 @@ def test_cli_config_from_sources_precedence_recipe_yaml_env_cli(
         environ={"CLEANMYDATA_OUTLIERS": "none"},
     )
     assert cfg.outliers == "remove"
+
+
+def test_cli_config_from_sources_single_env_override_boolean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    Env layer overrides recipe/YAML when CLI doesn't specify the field.
+    """
+
+    import cleanmydata.recipes as recipes
+
+    def fake_load_recipe(_: Path) -> CleaningConfig:
+        return CleaningConfig(clean_text=True)
+
+    monkeypatch.setattr(recipes, "load_recipe", fake_load_recipe)
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("clean_text: true\n", encoding="utf-8")
+
+    cfg = CLIConfig.from_sources(
+        cli_args={"path": tmp_path / "input.csv"},
+        recipe_path=tmp_path / "recipe.yml",
+        config_path=config_path,
+        environ={"CLEANMYDATA_CLEAN_TEXT": "false"},
+    )
+    assert cfg.clean_text is False
