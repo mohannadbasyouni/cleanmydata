@@ -1,10 +1,12 @@
 """Tests for the cleanmydata.exceptions module."""
 
 from cleanmydata.exceptions import (
+    CleanIOError,
     CleanMyDataError,
     DataCleaningError,
     DataLoadError,
     DependencyError,
+    InvalidInputError,
     StorageSigningError,
     ValidationError,
 )
@@ -18,6 +20,8 @@ def test_all_exceptions_inherit_from_base():
         DataCleaningError,
         ValidationError,
         StorageSigningError,
+        InvalidInputError,
+        CleanIOError,
     ]
 
     for exc_class in exception_classes:
@@ -51,4 +55,12 @@ def test_exception_messages():
 
     # Test StorageSigningError
     exc = StorageSigningError(message)
+    assert str(exc) == message
+
+    # Test InvalidInputError
+    exc = InvalidInputError(message)
+    assert str(exc) == message
+
+    # Test CleanIOError
+    exc = CleanIOError(message)
     assert str(exc) == message
